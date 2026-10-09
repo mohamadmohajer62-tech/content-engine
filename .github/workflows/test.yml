@@ -10,14 +10,18 @@ jobs:
       WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
-      - name: Check secrets exist
+      - name: Inspect secrets
         run: |
           for v in WP_URL WP_USER WP_APP_PASSWORD OPENROUTER_API_KEY; do
-            if [ -z "${!v}" ]; then echo "MISSING: $v"; else echo "OK: $v"; fi
+            val="${!v}"
+            echo "$v length: ${#val}"
           done
+          echo "WP_URL starts with https: $([[ "$WP_URL" == https://* ]] && echo yes || echo no)"
+          echo "WP_URL has hidden chars: $(printf '%s' "$WP_URL" | grep -c '[^[:print:]]')"
       - name: Test WordPress
         run: |
-          curl -s -o /dev/null -w "WordPress status: %{http_code}\n" -u "$WP_USER:$WP_APP_PASSWORD" "$WP_URL/wp-json/wp/v2/users/me"
+          URL=$(printf '%s' "$WP_URL" | tr -d '[:space:]' | sed 's:/*$::')
+          curl -s -o /dev/null -w "WordPress status: %{http_code}\n" -u "$WP_USER:$WP_APP_PASSWORD" "$URL/wp-json/wp/v2/users/me"
       - name: Test OpenRouter
         run: |
           curl -s -o /dev/null -w "OpenRouter status: %{http_code}\n" -H "Authorization: Bearer $OPENROUTER_API_KEY" https://openrouter.ai/api/v1/auth/key
