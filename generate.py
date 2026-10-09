@@ -48,7 +48,7 @@ def ask_json(user):
         return json.loads(m.group(0))
     except Exception:
         sys.exit("خروجی JSON معتبر نبود: " + t[:300])
-
+print("USER length:", len(os.environ["WP_USER"]), "| PASS length:", len(os.environ["WP_APP_PASSWORD"]))
 # 1) چک وردپرس
 r = requests.get(f"{WP}/wp-json/wp/v2/users/me", auth=AUTH, timeout=30)
 print("WordPress:", r.status_code, r.text[:200])
