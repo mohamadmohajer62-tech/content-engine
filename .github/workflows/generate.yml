@@ -15,7 +15,7 @@ jobs:
       - run: pip install requests
       - name: Generate draft
         env:
-                    WP_USER: content-bot
+          WP_USER: content-bot
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python generate.py
