@@ -51,7 +51,7 @@ def ask_json(user):
 
 # 1) چک وردپرس
 r = requests.get(f"{WP}/wp-json/wp/v2/users/me", auth=AUTH, timeout=30)
-print("WordPress:", r.status_code)
+print("WordPress:", r.status_code, r.text[:200])
 if r.status_code != 200:
     sys.exit("اتصال وردپرس درست نیست (۴۰۱ یعنی نام کاربری یا Application Password اشتباه است).")
 
