@@ -18,7 +18,7 @@ jobs:
           WP_USER: content-bot
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-                    GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
+          GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
           LLM_MODEL: gpt-4o-mini
         run: python generate.py
       - name: Save calendar
