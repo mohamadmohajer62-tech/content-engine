@@ -20,6 +20,8 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
           LLM_MODEL: gpt-4o-mini
+          IMAGE_MODEL: ""
+          IMAGE_SIZE: "1536x1024"
         run: python generate.py
       - name: Save calendar
         run: |
