@@ -1,4 +1,4 @@
-import os, csv, re, sys, glob, requests
+import os, csv, re, sys, glob, time, requests
 
 WP = "https://mohammadmohajer.ir"
 AUTH = (os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"])
@@ -6,8 +6,12 @@ KEY = os.environ["OPENROUTER_API_KEY"]
 SYSTEM = open("prompt.md", encoding="utf-8").read()
 ALLOWED = {"SWOT", "TOWS", "KPI"}
 
-# True یعنی فقط مدل‌هایی که روی پرامپت آموزش نمی‌بینند. اگر هیچ مدلی جواب نداد، موقتاً False کنید.
+# True یعنی فقط مدل‌هایی که روی پرامپت آموزش نمی‌بینند
 DENY_TRAINING = True
+
+BLOCK = ["code", "coder", "lyria", "clip", "safety", "guard", "embed", "audio", "tts",
+         "image", "vision", "omni", "music", "video", "ocr", "agent"]
+PREFER = ["gemma", "llama", "qwen", "deepseek", "mistral", "gpt-oss", "glm"]
 
 def free_models():
     try:
@@ -16,50 +20,64 @@ def free_models():
         sys.exit("لیست مدل‌ها دریافت نشد: " + str(e))
     out = []
     for m in data:
+        mid = m["id"]
         p = m.get("pricing", {})
         try:
             free = float(p.get("prompt", "1")) == 0 and float(p.get("completion", "1")) == 0
         except Exception:
             free = False
-        mid = m["id"]
         if not free or "stealth" in mid or mid.startswith("openrouter/"):
+            continue
+        if any(b in mid.lower() for b in BLOCK):
+            continue
+        outs = (m.get("architecture") or {}).get("output_modalities") or ["text"]
+        if any(o != "text" for o in outs):
             continue
         if (m.get("context_length") or 0) < 16000:
             continue
         out.append(m)
-    out.sort(key=lambda m: m.get("created", 0), reverse=True)
+    out.sort(key=lambda m: (not any(p in m["id"].lower() for p in PREFER), -(m.get("created") or 0)))
     return [m["id"] for m in out]
 
 MODELS = free_models()
-print("Free models found:", len(MODELS), MODELS[:8])
+print("Candidate models:", len(MODELS), MODELS[:8])
 if not MODELS:
-    sys.exit("هیچ مدل رایگانی پیدا نشد.")
+    sys.exit("هیچ مدل رایگان مناسبی پیدا نشد.")
 good = [0]
 
-def ask(user, max_tokens=3000):
+def ask(user, max_tokens=3000, fatal=True):
     order = MODELS[good[0]:] + MODELS[:good[0]]
-    for model in order[:10]:
+    for model in order[:8]:
         body = {"model": model, "max_tokens": max_tokens,
                 "messages": [{"role": "system", "content": SYSTEM},
                              {"role": "user", "content": user}]}
         if DENY_TRAINING:
             body["provider"] = {"data_collection": "deny"}
-        try:
-            r = requests.post("https://openrouter.ai/api/v1/chat/completions",
-                              headers={"Authorization": f"Bearer {KEY}"},
-                              json=body, timeout=240)
-            if r.status_code != 200:
-                print(f"[{model}] status {r.status_code} {r.text[:150]}")
+        for attempt in range(3):
+            try:
+                r = requests.post("https://openrouter.ai/api/v1/chat/completions",
+                                  headers={"Authorization": f"Bearer {KEY}"},
+                                  json=body, timeout=240)
+            except Exception as e:
+                print(f"[{model}] error {type(e).__name__}")
+                break
+            if r.status_code == 429:
+                print(f"[{model}] rate-limited, waiting 40s ({attempt+1}/3)")
+                time.sleep(40)
                 continue
+            if r.status_code != 200:
+                print(f"[{model}] status {r.status_code} {r.text[:100]}")
+                break
             text = r.json()["choices"][0]["message"].get("content") or ""
             if len(text) > 50:
                 good[0] = MODELS.index(model)
                 print(f"[{model}] OK")
                 return text
             print(f"[{model}] empty answer")
-        except Exception as e:
-            print(f"[{model}] error {type(e).__name__}")
-    sys.exit("هیچ مدل رایگانی پاسخ نداد. اگر DENY_TRAINING روشن است، آن را موقتاً False کنید یا بعداً تلاش کنید.")
+            break
+    if fatal:
+        sys.exit("هیچ مدل رایگانی پاسخ نداد. چند دقیقه بعد دوباره اجرا کنید.")
+    return ""
 
 def clean(t):
     t = re.sub(r"```(html)?", "", t).strip()
@@ -112,7 +130,7 @@ card_ids = [c.strip() for c in row.get("cards", "").split("|") if c.strip()]
 CARDS = load_cards(card_ids)
 print("Topic:", row["topic"], "| cards:", card_ids)
 
-# 3) طرح کلی (قالب خطی، نه JSON)
+# 3) طرح کلی
 roles_text = "\n".join(f"{i+1}. {n}" for i, (n, _) in enumerate(ROLES))
 t = ask(f"""موضوع: {row['topic']}
 کلمه‌ی کلیدی اصلی: {row['primary_keyword']}
@@ -164,15 +182,15 @@ for i, (role, how) in enumerate(ROLES):
 وظیفه‌ی این بخش: {how}
 حدود ۲۵۰ تا ۳۵۰ کلمه، فقط HTML ساده (p, ul, li, strong). تیتر H2 نگذار.
 پایان متن قبلی (تکرارش نکن): {tail}
-{cta_line}""", 1800))
+{cta_line}""", 2500))
     sections.append(("" if i == 0 else f"<h2>{headings[i]}</h2>\n") + body + "\n")
 
-# 6) ویرایش فارسی در دو بخش
+# 6) ویرایش فارسی در دو بخش (اگر ویرایش شکست خورد، متن اصلی می‌ماند)
 def edit(block):
     out = clean(ask(f"""متن HTML زیر را ویرایش فارسی کن: جمله‌های ترجمه‌ای و غیرطبیعی را روان و طبیعی کن، کلمه‌های انگلیسی را فارسی کن (SWOT و TOWS و KPI بماند)، تکرار را کم کن.
 معنا را تغییر نده، ادعا یا عدد تازه اضافه نکن، ساختار HTML و تیترهای h2 را حفظ کن. فقط HTML را برگردان.
 
-{block}""", 3500))
+{block}""", 4000, fatal=False))
     return out if len(out) > 0.6 * len(block) else block
 
 edited = []
@@ -186,7 +204,7 @@ html = "\n".join(edited)
 left = latin_words(html)
 print("WARNING - English words left:" if left else "No stray English words.", left)
 
-# 7) سئو و سوالات متداول (قالب خطی)
+# 7) سئو و سوالات متداول (اگر شکست خورد، مقدار پیش‌فرض)
 s = ask(f"""برای مقاله‌ی «{title}» با کلمه‌ی کلیدی «{row['primary_keyword']}» دقیقاً در این قالب بنویس، هر مورد فقط در یک خط و بدون توضیح دیگر:
 META_TITLE: حداکثر ۶۰ کاراکتر
 META_DESC: ۱۴۰ تا ۱۶۰ کاراکتر
@@ -200,15 +218,17 @@ Q3: ...
 A3: ...
 
 کارت منبع:
-{CARDS}""", 1200)
+{CARDS}""", 1500, fatal=False)
 meta_title = grab(s, "META_TITLE") or title
 meta_desc = grab(s, "META_DESC")
 excerpt = grab(s, "EXCERPT")
-tags = [x.strip() for x in grab(s, "TAGS").split("|") if x.strip()]
+tags = [x.strip() for x in grab(s, "TAGS").split("|") if x.strip()] or [x.strip() for x in kw2.split("،") if x.strip()]
 faq = [(grab(s, f"Q{i}"), grab(s, f"A{i}")) for i in (1, 2, 3)]
 faq = [(q, a) for q, a in faq if q and a]
 if faq:
     html += "\n<h2>سوالات متداول</h2>\n" + "".join(f"<h3>{q}</h3>\n<p>{a}</p>\n" for q, a in faq)
+else:
+    print("SEO step failed: using defaults, no FAQ.")
 
 print("Word count:", len(re.sub(r"<[^>]+>", " ", html).split()))
 
