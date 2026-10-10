@@ -3,15 +3,15 @@ import os, csv, re, sys, time, requests
 WP = "https://mohammadmohajer.ir"
 AUTH = (os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"])
 SYSTEM = open("prompt.md", encoding="utf-8").read()
+SYSTEM = re.sub(r"^- طول:.*$", "", SYSTEM, flags=re.M)  # طول را خود اسکریپت کنترل می‌کند
 GAP = os.environ.get("GAPGPT_API_KEY", "").strip()
 OR_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 
-def chat(url, key, model, user, max_tokens, extra=None):
+def chat(url, key, model, user, max_tokens):
     body = {"model": model, "max_tokens": max_tokens,
             "messages": [{"role": "system", "content": SYSTEM},
                          {"role": "user", "content": user}]}
-    if extra: body.update(extra)
     for attempt in range(3):
         r = requests.post(url, headers={"Authorization": f"Bearer {key}"}, json=body, timeout=300)
         if r.status_code == 429:
@@ -46,6 +46,11 @@ def ask(user, max_tokens):
         if len(t) > 50: print(f"[{m}] OK"); return t
     sys.exit("هیچ مدلی پاسخ نداد.")
 
+def clean(t):
+    t = re.sub(r"```(html)?", "", t).strip()
+    t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+    return t.replace("\u06d5", "ه")
+
 def grab(text, key):
     m = re.search(rf"^{key}\s*[:：]\s*(.+)$", text, re.M)
     return m.group(1).strip() if m else ""
@@ -58,32 +63,66 @@ with open("calendar.csv", encoding="utf-8-sig", newline="") as f:
     reader = csv.DictReader(f); fields = reader.fieldnames; rows = list(reader)
 row = next((x for x in rows if x["status"].strip().lower() == "ready"), None)
 if not row: sys.exit("ردیفی با وضعیت ready نیست.")
+kw = row["primary_keyword"]
 kw2 = row["secondary_keywords"].replace("|", "، ")
 print("Topic:", row["topic"])
 
-# درخواست ۱: مقاله
-raw = ask(f"""موضوع: {row['topic']}
-کلمه‌ی کلیدی اصلی: {row['primary_keyword']} (طبیعی و بدون تکرار اجباری در متن بیاور)
+# درخواست ۱: طرح کلی
+o = ask(f"""موضوع: {row['topic']}
+کلمه‌ی کلیدی اصلی: {kw}
 کلمات فرعی: {kw2}
 
-خروجی را دقیقاً با این دو خط شروع کن و بعد مقاله‌ی HTML را بنویس:
-TITLE: عنوان جذاب مقاله
-SLUG: english-short-slug
-""", 7000)
-title = grab(raw, "TITLE") or row["topic"]
-slug = re.sub(r"[^a-z0-9-]", "", grab(raw, "SLUG").lower().replace(" ", "-"))[:60].strip("-") or f"article-{row['id']}"
-html = re.sub(r"^(TITLE|SLUG)\s*[:：].*$", "", raw, flags=re.M)
-html = re.sub(r"```(html)?", "", html).strip()
-html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-print("Title:", title, "| words:", len(re.sub(r"<[^>]+>", " ", html).split()))
+برای این مقاله یک عنوان جذاب (شامل کلمه‌ی کلیدی)، یک slug انگلیسی کوتاه و ۶ بخش طراحی کن. بخش اول مقدمه و بخش آخر جمع‌بندی است. عنوان بخش‌ها طبیعی و جذاب باشد. هر بخش وظیفه‌ی جدا داشته باشد تا مطلب تکراری نشود.
+دقیقاً در این قالب و بدون هیچ توضیح دیگر:
+TITLE: ...
+SLUG: ...
+H1: مقدمه | هدف بخش در یک جمله
+H2: عنوان بخش | هدف بخش در یک جمله
+H3: ...
+H4: ...
+H5: ...
+H6: جمع‌بندی | هدف بخش در یک جمله""", 900)
+title = grab(o, "TITLE") or row["topic"]
+slug = re.sub(r"[^a-z0-9-]", "", grab(o, "SLUG").lower().replace(" ", "-"))[:60].strip("-") or f"article-{row['id']}"
+heads = []
+for h in re.findall(r"^H\d\s*[:：]\s*(.+)$", o, re.M):
+    name, _, goal = h.partition("|")
+    heads.append((name.strip(), goal.strip() or name.strip()))
+if len(heads) < 5:
+    print("Outline not parsed, using defaults.")
+    heads = [("مقدمه", "مسئله را زنده کن"), ("موضوع دقیقاً چیست؟", "توضیح ساده"),
+             ("چرا بیشتر مردم اشتباه می‌کنند؟", "نکته‌ای که کمتر دیده می‌شود"),
+             ("یک نمونه‌ی فرضی", "مثال ملموس"), ("برنامه‌ی عملی قدم‌به‌قدم", "راهکار اجرایی"),
+             ("جمع‌بندی", "جمع‌بندی کوتاه")]
+print("Title:", title, "| slug:", slug, "| sections:", len(heads))
 
 dup = requests.get(f"{WP}/wp-json/wp/v2/posts", params={"slug": slug, "status": "any"}, auth=AUTH, timeout=30).json()
 if isinstance(dup, list) and dup: sys.exit("مقاله‌ای با این slug قبلاً هست: " + slug)
 
-# درخواست ۲: سئو
-s = ask(f"""برای مقاله‌ی «{title}» با کلمه‌ی کلیدی «{row['primary_keyword']}» دقیقاً در این قالب بنویس، هر مورد در یک خط:
-META_TITLE: حداکثر ۶۰ کاراکتر
-META_DESC: ۱۴۰ تا ۱۶۰ کاراکتر
+# درخواست‌های بعدی: نوشتن بخش‌ها
+parts = []
+names = " | ".join(n for n, _ in heads)
+for i, (name, goal) in enumerate(heads):
+    prev = re.sub(r"<[^>]+>", " ", " ".join(parts))[-400:]
+    if i == 0: extra = "این بخش مقدمه است؛ مسئله را زنده کن و خواننده را وارد بحث کن."
+    elif i == len(heads) - 1: extra = "این بخش جمع‌بندی است؛ کوتاه جمع‌بندی کن و با یک سؤال برای خواننده تمام کن."
+    else: extra = ""
+    body = clean(ask(f"""مقاله: «{title}» | کلمه‌ی کلیدی: {kw}
+فهرست بخش‌ها: {names}
+
+حالا فقط بخش «{name}» را بنویس. هدف این بخش: {goal}. {extra}
+حدود ۲۸۰ تا ۳۵۰ کلمه بنویس (کوتاه‌تر نباشد)، با توضیح کافی، مثال یا جزئیات.
+فقط HTML ساده (p, ul, li, strong). تیتر h2 نگذار و مطالب بخش‌های دیگر را تکرار نکن.
+پایان متن قبلی (تکرارش نکن): {prev}""", 1800))
+    parts.append(("" if i == 0 else f"<h2>{name}</h2>\n") + body + "\n")
+html = "\n".join(parts)
+words = len(re.sub(r"<[^>]+>", " ", html).split())
+print("Word count:", words, "(کمتر از ۱۲۰۰ است!)" if words < 1200 else "")
+
+# درخواست آخر: سئو
+s = ask(f"""برای مقاله‌ی «{title}» با کلمه‌ی کلیدی «{kw}» دقیقاً در این قالب بنویس، هر مورد در یک خط:
+META_TITLE: حداکثر ۶۰ کاراکتر، بدون کلیشه
+META_DESC: ۱۴۰ تا ۱۶۰ کاراکتر، جذاب و بدون عبارت کلیشه‌ای
 EXCERPT: ۲ جمله
 TAGS: ۴ تا ۵ برچسب جداشده با علامت |
 Q1: سؤال واقعی یک مدیر کسب‌وکار
@@ -97,7 +136,7 @@ meta_desc, excerpt = grab(s, "META_DESC"), grab(s, "EXCERPT")
 tags = [x.strip() for x in grab(s, "TAGS").split("|") if x.strip()] or [x.strip() for x in kw2.split("،") if x.strip()]
 faq = [(grab(s, f"Q{i}"), grab(s, f"A{i}")) for i in (1, 2, 3)]
 faq = [(q, a) for q, a in faq if q and a]
-if faq and "سوالات متداول" not in html:
+if faq:
     html += "\n<h2>سوالات متداول</h2>\n" + "".join(f"<h3>{q}</h3>\n<p>{a}</p>\n" for q, a in faq)
 
 cats = requests.get(f"{WP}/wp-json/wp/v2/categories", params={"per_page": 100}, auth=AUTH, timeout=30).json()
