@@ -24,10 +24,17 @@ IMG_STYLE = ("Minimal flat vector editorial illustration, calm navy blue and war
              "soft rounded shapes, clean wide composition, no text, no letters, no numbers, "
              "no logos, no realistic human faces.")
 
+try:
+    _st = open("image-style.txt", encoding="utf-8").read().strip()
+    if _st:
+        IMG_STYLE = _st
+except Exception:
+    pass
 
-def chat(url, key, model, user, max_tokens):
+
+def chat(url, key, model, user, max_tokens, system=None):
     body = {"model": model, "max_tokens": max_tokens,
-            "messages": [{"role": "system", "content": SYSTEM},
+            "messages": [{"role": "system", "content": system or SYSTEM},
                          {"role": "user", "content": user}]}
     for attempt in range(3):
         r = requests.post(url, headers={"Authorization": "Bearer " + key}, json=body, timeout=300)
@@ -61,9 +68,9 @@ def free_models():
     return out
 
 
-def ask(user, max_tokens):
+def ask(user, max_tokens, system=None):
     if GAP:
-        t = chat(GAP_BASE + "/chat/completions", GAP, MODEL, user, max_tokens)
+        t = chat(GAP_BASE + "/chat/completions", GAP, MODEL, user, max_tokens, system)
         if len(t) > 50:
             print("[GapGPT]", MODEL, "OK")
             return t
@@ -71,7 +78,7 @@ def ask(user, max_tokens):
     if not OR_KEY:
         sys.exit("هیچ کلیدی برای مدل پیدا نشد.")
     for m in free_models()[:6]:
-        t = chat("https://openrouter.ai/api/v1/chat/completions", OR_KEY, m, user, max_tokens)
+        t = chat("https://openrouter.ai/api/v1/chat/completions", OR_KEY, m, user, max_tokens, system)
         if len(t) > 50:
             print("[%s] OK" % m)
             return t
@@ -127,6 +134,29 @@ def extract_image(j):
         if u.startswith("http"):
             return requests.get(u, timeout=120).content
     return None
+
+
+def plain(html, n=900):
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()[:n]
+
+
+ART_SYSTEM = ("You are an art director for a Persian business-strategy blog. "
+              "You write precise image briefs in English for an AI image generator.")
+
+
+def art_brief(title, context, cover=False):
+    kind = ("a cover image for the whole article" if cover else "an illustration for one section of the article")
+    q = ("Article title (Persian): %s\nText the image should illustrate (Persian): %s\n\n"
+         "Write ONE paragraph (45-70 words, English) describing %s. "
+         "Choose ONE concrete, specific scene that a small-business owner would recognise from daily work "
+         "(a real place, real objects, a clear action), not an abstract symbol. "
+         "Include: the main subject, 3-5 specific objects, the setting, the camera angle/composition and the lighting mood. "
+         "Avoid clichés (lightbulb, rocket, chess pieces, handshake, arrows, gears, puzzle pieces). "
+         "The picture must contain no text, letters, numbers, logos or readable signs. "
+         "Return only the paragraph." % (title, context, kind))
+    out = ask(q, 400, ART_SYSTEM)
+    out = re.sub(r"\s+", " ", out).strip().strip('"')
+    return out if len(out) > 40 else ""
 
 
 def make_image(prompt):
@@ -302,9 +332,14 @@ if IMG_MODEL and GAP:
              (grab(s, "IMG2"), grab(s, "ALT2") or title, "img2"),
              (grab(s, "IMG3"), grab(s, "ALT3") or title, "img3")]
     inline_slots = [1, 3]
+    ctxs = [title + ". " + plain(parts[0]), plain(parts[1]), plain(parts[min(3, len(parts) - 1)])]
     for n, (idea, alt, tag) in enumerate(specs):
-        if not idea:
-            idea = "a simple visual metaphor for growing a small business"
+        try:
+            brief = art_brief(title, ctxs[n], cover=(n == 0))
+        except SystemExit:
+            brief = ""
+        idea = brief or idea or "a simple visual metaphor for growing a small business"
+        print("Image %d brief: %s" % (n + 1, idea[:160]))
         data = make_image(idea)
         if not data:
             print("Image %d failed; skipping." % (n + 1))

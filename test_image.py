@@ -5,9 +5,10 @@ MODEL = os.environ.get("MODEL", "").strip()
 BASE = "https://api.gapgpt.app/v1"
 if not KEY or not MODEL:
     sys.exit("کلید یا نام مدل خالی است.")
-PROMPT = ("Minimal flat vector editorial illustration, calm navy blue and warm orange palette, "
-          "wide composition, no text, no letters. A small shop owner standing before a simple path "
-          "of three stepping stones leading to a glowing door.")
+PROMPT = os.environ.get("PROMPT", "").strip() or ("Modern editorial illustration with paper texture, warm natural light, navy blue and orange palette, "
+          "no text, no letters. A small shop owner standing at the entrance of a bright neighbourhood shop, "
+          "looking at a hand-drawn customer journey map pinned on a wall.")
+print("PROMPT:", PROMPT[:300])
 
 def extract(j):
     try:
