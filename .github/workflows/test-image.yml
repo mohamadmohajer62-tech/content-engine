@@ -5,6 +5,9 @@ on:
       model:
         description: "Image model ID"
         required: true
+      prompt:
+        description: "Image prompt (optional)"
+        required: false
 
 jobs:
   t:
@@ -19,6 +22,7 @@ jobs:
         env:
           GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
           MODEL: ${{ github.event.inputs.model }}
+          PROMPT: ${{ github.event.inputs.prompt }}
         run: python test_image.py
       - uses: actions/upload-artifact@v4
         if: always()
