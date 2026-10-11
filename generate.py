@@ -203,3 +203,20 @@ wrapped = '<div class="mm-article">' + html + '</div>'
 payload = {"title": title, "slug": slug, "content": wrapped, "excerpt": excerpt,
            "status": "draft", "categories": cat_ids, "tags": tag_ids,
            "meta": {"rank_math_title": meta_title, "rank_math_description": meta_desc,
+                    "rank_math_focus_keyword": focus}}
+if media_id: payload["featured_media"] = media_id
+post = requests.post(f"{WP}/wp-json/wp/v2/posts", auth=AUTH, timeout=60, json=payload)
+print("Create post:", post.status_code)
+if post.status_code not in (200, 201): sys.exit(post.text[:300])
+pid = post.json()["id"]
+print("Draft ID:", pid, "| edit:", f"{WP}/wp-admin/post.php?post={pid}&action=edit")
+
+chk = requests.get(f"{WP}/wp-json/wp/v2/posts/{pid}", params={"context": "edit"}, auth=AUTH, timeout=30).json()
+m = chk.get("meta") or {}
+print("Rank Math saved:", bool(m.get("rank_math_title")), "| focus:", m.get("rank_math_focus_keyword"))
+print("META_TITLE:", meta_title); print("META_DESC:", meta_desc)
+
+if "wp_id" not in fields: fields.append("wp_id")
+row["status"] = "draft"; row["wp_id"] = str(pid)
+with open("calendar.csv", "w", encoding="utf-8", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=fields); w.writeheader(); w.writerows(rows)
