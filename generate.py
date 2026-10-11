@@ -188,7 +188,40 @@ def make_image(prompt):
     return None
 
 
+MAX_W = 1200          # حداکثر عرض تصویر (پیکسل)
+MAX_KB = 150          # سقف حجم هدف (کیلوبایت)
+
+
+def compress(data):
+    """تبدیل به WebP سبک: کوچک‌کردن ابعاد و کاهش تدریجی کیفیت تا رسیدن به سقف حجم."""
+    try:
+        from PIL import Image
+        import io
+        im = Image.open(io.BytesIO(data))
+        if im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGB")
+        if im.mode == "RGBA":
+            bg = Image.new("RGB", im.size, (255, 255, 255))
+            bg.paste(im, mask=im.split()[3])
+            im = bg
+        if im.width > MAX_W:
+            im = im.resize((MAX_W, int(im.height * MAX_W / im.width)), Image.LANCZOS)
+        out = data
+        for q in (82, 74, 66, 58, 50):
+            buf = io.BytesIO()
+            im.save(buf, "WEBP", quality=q, method=6)
+            out = buf.getvalue()
+            if len(out) <= MAX_KB * 1024:
+                break
+        print("Image compressed: %d KB -> %d KB (%dx%d)" % (len(data) // 1024, len(out) // 1024, im.width, im.height))
+        return out, im.width, im.height
+    except Exception as e:
+        print("Compression skipped:", type(e).__name__, str(e)[:100])
+        return data, None, None
+
+
 def upload_image(data, slug, alt):
+    data, w, h = compress(data)
     if data[:2] == b"\xff\xd8":
         ext, mime = "jpg", "image/jpeg"
     elif data[:4] == b"RIFF":
@@ -200,11 +233,11 @@ def upload_image(data, slug, alt):
                                "Content-Type": mime})
     if r.status_code not in (200, 201):
         print("Media upload failed", r.status_code, r.text[:150])
-        return None, None
+        return None, None, None, None
     j = r.json()
     S.post("%s/wp-json/wp/v2/media/%s" % (WP, j["id"]), auth=AUTH,
                   json={"alt_text": alt, "title": alt}, timeout=60)
-    return j["id"], j.get("source_url")
+    return j["id"], j.get("source_url"), w, h
 
 
 # ---------- شروع ----------
@@ -344,14 +377,15 @@ if IMG_MODEL and GAP:
         if not data:
             print("Image %d failed; skipping." % (n + 1))
             continue
-        mid, url = upload_image(data, "%s-%s" % (slug, tag), alt)
+        mid, url, iw, ih = upload_image(data, "%s-%s" % (slug, tag), alt)
         print("Image %d uploaded: id=%s" % (n + 1, mid))
         if not mid:
             continue
         if n == 0:
             featured_id = mid
         elif url and n <= len(inline_slots) and inline_slots[n - 1] < len(parts):
-            fig = '<figure class="mm-fig"><img src="%s" alt="%s" loading="lazy" /></figure>\n' % (url, alt)
+            dims = (' width="%s" height="%s"' % (iw, ih)) if iw else ""
+            fig = '<figure class="mm-fig"><img src="%s" alt="%s"%s loading="lazy" decoding="async" /></figure>\n' % (url, alt, dims)
             parts[inline_slots[n - 1]] += fig
 else:
     print("IMAGE_MODEL not set: skipping images.")
