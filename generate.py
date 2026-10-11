@@ -11,6 +11,14 @@ IMG_MODEL = os.environ.get("IMAGE_MODEL", "").strip()
 IMG_SIZE = os.environ.get("IMAGE_SIZE", "1536x1024").strip() or "1536x1024"
 GAP_BASE = "https://api.gapgpt.app/v1"
 
+# نشست اتصال به وردپرس: هدر مرورگرمانند و تلاش مجدد برای درخواست‌های خواندنی
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+S = requests.Session()
+S.headers.update({"User-Agent": "Mozilla/5.0 (compatible; ContentEngine/1.0; +https://mohammadmohajer.ir)"})
+S.mount("https://", HTTPAdapter(max_retries=Retry(total=5, connect=5, read=4, backoff_factor=5,
+                                                   status_forcelist=[502, 503, 504])))
+
 # سبک ثابت تصاویر سایت (برای یکدست‌بودن همه‌ی مقاله‌ها)
 IMG_STYLE = ("Minimal flat vector editorial illustration, calm navy blue and warm orange palette, "
              "soft rounded shapes, clean wide composition, no text, no letters, no numbers, "
@@ -157,20 +165,23 @@ def upload_image(data, slug, alt):
         ext, mime = "webp", "image/webp"
     else:
         ext, mime = "png", "image/png"
-    r = requests.post(WP + "/wp-json/wp/v2/media", auth=AUTH, timeout=180, data=data,
+    r = S.post(WP + "/wp-json/wp/v2/media", auth=AUTH, timeout=180, data=data,
                       headers={"Content-Disposition": 'attachment; filename="%s.%s"' % (slug, ext),
                                "Content-Type": mime})
     if r.status_code not in (200, 201):
         print("Media upload failed", r.status_code, r.text[:150])
         return None, None
     j = r.json()
-    requests.post("%s/wp-json/wp/v2/media/%s" % (WP, j["id"]), auth=AUTH,
+    S.post("%s/wp-json/wp/v2/media/%s" % (WP, j["id"]), auth=AUTH,
                   json={"alt_text": alt, "title": alt}, timeout=60)
     return j["id"], j.get("source_url")
 
 
 # ---------- شروع ----------
-r = requests.get(WP + "/wp-json/wp/v2/users/me", auth=AUTH, timeout=30)
+try:
+    r = S.get(WP + "/wp-json/wp/v2/users/me", auth=AUTH, timeout=45)
+except Exception as e:
+    sys.exit("اتصال به سایت برقرار نشد (%s). احتمالاً فایروال یا هاست جلوی GitHub را گرفته؛ چند دقیقه بعد دوباره امتحان کنید." % type(e).__name__)
 print("WordPress:", r.status_code)
 if r.status_code != 200:
     sys.exit("اتصال وردپرس درست نیست.")
@@ -216,7 +227,7 @@ if len(heads) < 5:
              ("جمع‌بندی", "جمع‌بندی کوتاه")]
 print("Title:", title, "| slug:", slug, "| sections:", len(heads))
 
-dup = requests.get(WP + "/wp-json/wp/v2/posts", params={"slug": slug, "status": "any"}, auth=AUTH, timeout=30).json()
+dup = S.get(WP + "/wp-json/wp/v2/posts", params={"slug": slug, "status": "any"}, auth=AUTH, timeout=30).json()
 if isinstance(dup, list) and dup:
     sys.exit("مقاله‌ای با این slug قبلاً هست: " + slug)
 
@@ -274,11 +285,11 @@ tags = [x.strip() for x in grab(s, "TAGS").split("|") if x.strip()] or [x.strip(
 faq = [(grab(s, "Q%d" % i), grab(s, "A%d" % i)) for i in (1, 2, 3)]
 faq = [(q, a) for q, a in faq if q and a]
 
-cats = requests.get(WP + "/wp-json/wp/v2/categories", params={"per_page": 100}, auth=AUTH, timeout=30).json()
+cats = S.get(WP + "/wp-json/wp/v2/categories", params={"per_page": 100}, auth=AUTH, timeout=30).json()
 cat_ids = [c["id"] for c in cats if c["name"].strip() == row["category"].strip()]
 tag_ids = []
 for tg in tags[:5]:
-    tr = requests.post(WP + "/wp-json/wp/v2/tags", auth=AUTH, json={"name": tg}, timeout=30)
+    tr = S.post(WP + "/wp-json/wp/v2/tags", auth=AUTH, json={"name": tg}, timeout=30)
     if tr.status_code in (200, 201):
         tag_ids.append(tr.json()["id"])
     elif tr.status_code == 400 and "term_id" in tr.text:
@@ -331,14 +342,14 @@ payload["tags"] = tag_ids
 payload["meta"] = meta
 if featured_id:
     payload["featured_media"] = featured_id
-post = requests.post(WP + "/wp-json/wp/v2/posts", auth=AUTH, timeout=60, json=payload)
+post = S.post(WP + "/wp-json/wp/v2/posts", auth=AUTH, timeout=60, json=payload)
 print("Create post:", post.status_code)
 if post.status_code not in (200, 201):
     sys.exit(post.text[:300])
 pid = post.json()["id"]
 print("Draft ID:", pid, "| edit:", "%s/wp-admin/post.php?post=%s&action=edit" % (WP, pid))
 
-chk = requests.get("%s/wp-json/wp/v2/posts/%s" % (WP, pid), params={"context": "edit"}, auth=AUTH, timeout=30).json()
+chk = S.get("%s/wp-json/wp/v2/posts/%s" % (WP, pid), params={"context": "edit"}, auth=AUTH, timeout=30).json()
 m = chk.get("meta") or {}
 print("Rank Math saved:", bool(m.get("rank_math_title")), "| focus:", m.get("rank_math_focus_keyword"))
 print("META_TITLE:", meta_title)
