@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests
+      - run: pip install requests pillow
       - name: Generate draft
         env:
           WP_USER: content-bot
@@ -20,7 +20,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
           LLM_MODEL: gpt-4o-mini
-          IMAGE_MODEL: "gapgpt/qwen-image-2.1"
+          IMAGE_MODEL: "gpt-image-2"
           IMAGE_SIZE: "1536x1024"
         run: python generate.py
       - name: Save calendar
