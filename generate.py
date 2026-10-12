@@ -151,6 +151,9 @@ def art_brief(title, context, cover=False):
          "Choose ONE concrete, specific scene that a small-business owner would recognise from daily work "
          "(a real place, real objects, a clear action), not an abstract symbol. "
          "Include: the main subject, 3-5 specific objects, the setting, the camera angle/composition and the lighting mood. "
+         "The scene must feel Iranian: an everyday Iranian city setting (neighbourhood shops, offices, bazaar corners, cafes, workshops), "
+         "people with natural Iranian appearance and modest everyday clothing, details like tea glasses or Persian-style interiors only where natural; "
+         "avoid a generic Western stock-photo look. "
          "Avoid clichés (lightbulb, rocket, chess pieces, handshake, arrows, gears, puzzle pieces). "
          "The picture must contain no text, letters, numbers, logos or readable signs. "
          "Return only the paragraph." % (title, context, kind))
