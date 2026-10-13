@@ -32,6 +32,26 @@ except Exception:
     pass
 
 
+def wp(method, url, tries=5, **kw):
+    """درخواست به وردپرس با تلاش مجدد (برای کندی یا قطع لحظه‌ای هاست)."""
+    kw["timeout"] = max(kw.get("timeout", 0), 90)
+    last = None
+    for i in range(tries):
+        try:
+            r = S.request(method, url, **kw)
+            _ = r.content  # خواندن کامل پاسخ داخل همین try تا خطای زمان‌بر هم گرفته شود
+            if r.status_code in (502, 503, 504, 524) and i < tries - 1:
+                print("WP %s status %s, retry %d/%d" % (method, r.status_code, i + 1, tries))
+                time.sleep(15 * (i + 1))
+                continue
+            return r
+        except requests.exceptions.RequestException as e:
+            last = e
+            print("WP %s error %s, retry %d/%d" % (method, type(e).__name__, i + 1, tries))
+            time.sleep(15 * (i + 1))
+    raise last
+
+
 def chat(url, key, model, user, max_tokens, system=None):
     body = {"model": model, "max_tokens": max_tokens,
             "messages": [{"role": "system", "content": system or SYSTEM},
@@ -231,21 +251,21 @@ def upload_image(data, slug, alt):
         ext, mime = "webp", "image/webp"
     else:
         ext, mime = "png", "image/png"
-    r = S.post(WP + "/wp-json/wp/v2/media", auth=AUTH, timeout=180, data=data,
+    r = wp("POST", WP + "/wp-json/wp/v2/media", auth=AUTH, timeout=180, data=data,
                       headers={"Content-Disposition": 'attachment; filename="%s.%s"' % (slug, ext),
                                "Content-Type": mime})
     if r.status_code not in (200, 201):
         print("Media upload failed", r.status_code, r.text[:150])
         return None, None, None, None
     j = r.json()
-    S.post("%s/wp-json/wp/v2/media/%s" % (WP, j["id"]), auth=AUTH,
+    wp("POST", "%s/wp-json/wp/v2/media/%s" % (WP, j["id"]), auth=AUTH,
                   json={"alt_text": alt, "title": alt}, timeout=60)
     return j["id"], j.get("source_url"), w, h
 
 
 # ---------- شروع ----------
 try:
-    r = S.get(WP + "/wp-json/wp/v2/users/me", auth=AUTH, timeout=45)
+    r = wp("GET", WP + "/wp-json/wp/v2/users/me", auth=AUTH, timeout=45)
 except Exception as e:
     sys.exit("اتصال به سایت برقرار نشد (%s). احتمالاً فایروال یا هاست جلوی GitHub را گرفته؛ چند دقیقه بعد دوباره امتحان کنید." % type(e).__name__)
 print("WordPress:", r.status_code)
@@ -293,7 +313,7 @@ if len(heads) < 5:
              ("جمع‌بندی", "جمع‌بندی کوتاه")]
 print("Title:", title, "| slug:", slug, "| sections:", len(heads))
 
-dup = S.get(WP + "/wp-json/wp/v2/posts", params={"slug": slug, "status": "any"}, auth=AUTH, timeout=30).json()
+dup = wp("GET", WP + "/wp-json/wp/v2/posts", params={"slug": slug, "status": "any"}, auth=AUTH, timeout=30).json()
 if isinstance(dup, list) and dup:
     sys.exit("مقاله‌ای با این slug قبلاً هست: " + slug)
 
@@ -351,11 +371,11 @@ tags = [x.strip() for x in grab(s, "TAGS").split("|") if x.strip()] or [x.strip(
 faq = [(grab(s, "Q%d" % i), grab(s, "A%d" % i)) for i in (1, 2, 3)]
 faq = [(q, a) for q, a in faq if q and a]
 
-cats = S.get(WP + "/wp-json/wp/v2/categories", params={"per_page": 100}, auth=AUTH, timeout=30).json()
+cats = wp("GET", WP + "/wp-json/wp/v2/categories", params={"per_page": 100}, auth=AUTH, timeout=30).json()
 cat_ids = [c["id"] for c in cats if c["name"].strip() == row["category"].strip()]
 tag_ids = []
 for tg in tags[:5]:
-    tr = S.post(WP + "/wp-json/wp/v2/tags", auth=AUTH, json={"name": tg}, timeout=30)
+    tr = wp("POST", WP + "/wp-json/wp/v2/tags", auth=AUTH, json={"name": tg}, timeout=30)
     if tr.status_code in (200, 201):
         tag_ids.append(tr.json()["id"])
     elif tr.status_code == 400 and "term_id" in tr.text:
@@ -414,14 +434,28 @@ payload["tags"] = tag_ids
 payload["meta"] = meta
 if featured_id:
     payload["featured_media"] = featured_id
-post = S.post(WP + "/wp-json/wp/v2/posts", auth=AUTH, timeout=60, json=payload)
+try:
+    post = wp("POST", WP + "/wp-json/wp/v2/posts", tries=1, auth=AUTH, timeout=120, json=payload)
+except requests.exceptions.RequestException as e:
+    # ممکن است پست ساخته شده ولی پاسخ نرسیده باشد؛ قبل از هر تلاش دیگر با slug بررسی می‌کنیم
+    print("Create post error %s; checking whether it was created..." % type(e).__name__)
+    time.sleep(20)
+    found = wp("GET", WP + "/wp-json/wp/v2/posts", params={"slug": slug, "status": "any"}, auth=AUTH, timeout=60).json()
+    if isinstance(found, list) and found:
+        class _P:
+            status_code = 201
+            def json(self):
+                return found[0]
+        post = _P()
+    else:
+        post = wp("POST", WP + "/wp-json/wp/v2/posts", tries=2, auth=AUTH, timeout=120, json=payload)
 print("Create post:", post.status_code)
 if post.status_code not in (200, 201):
     sys.exit(post.text[:300])
 pid = post.json()["id"]
 print("Draft ID:", pid, "| edit:", "%s/wp-admin/post.php?post=%s&action=edit" % (WP, pid))
 
-chk = S.get("%s/wp-json/wp/v2/posts/%s" % (WP, pid), params={"context": "edit"}, auth=AUTH, timeout=30).json()
+chk = wp("GET", "%s/wp-json/wp/v2/posts/%s" % (WP, pid), params={"context": "edit"}, auth=AUTH, timeout=30).json()
 m = chk.get("meta") or {}
 print("Rank Math saved:", bool(m.get("rank_math_title")), "| focus:", m.get("rank_math_focus_keyword"))
 print("META_TITLE:", meta_title)
