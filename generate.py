@@ -1,4 +1,5 @@
 import os, csv, re, sys, time, base64, requests
+import html as htmllib
 
 WP = "https://mohammadmohajer.ir"
 AUTH = (os.environ["WP_USER"], os.environ["WP_APP_PASSWORD"])
@@ -10,6 +11,7 @@ MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 IMG_MODEL = os.environ.get("IMAGE_MODEL", "").strip()
 IMG_SIZE = os.environ.get("IMAGE_SIZE", "1536x1024").strip() or "1536x1024"
 GAP_BASE = "https://api.gapgpt.app/v1"
+INLINE_AI_IMAGES = os.environ.get("INLINE_AI_IMAGES", "0").strip() == "1"
 
 # نشست اتصال به وردپرس: هدر مرورگرمانند و تلاش مجدد برای درخواست‌های خواندنی
 from requests.adapters import HTTPAdapter
@@ -263,6 +265,124 @@ def upload_image(data, slug, alt):
     return j["id"], j.get("source_url"), w, h
 
 
+# ---------- اینفوگرافیک متنی (HTML) و جاستیفای ----------
+NAVY, ORANGE, SOFT, LINE, MUTED = "#1b2a4a", "#e8590c", "#f8fafc", "#e3e8f0", "#475569"
+INFO_SYSTEM = ("You extract structured infographic data from Persian business text. "
+               "Reply only in the requested format, in fluent Persian, with no English words.")
+
+
+def esc(t):
+    return htmllib.escape(t.strip(), quote=False)
+
+
+def info_wrap(title, inner):
+    return ('<div dir="rtl" style="margin:2em 0;padding:1.3em 1.4em;border:1px solid %s;border-radius:14px;background:%s;'
+            'text-align:right">'
+            '<div style="font-weight:800;font-size:22px;line-height:1.7;color:%s;margin-bottom:.9em">%s</div>%s</div>\n'
+            % (LINE, SOFT, NAVY, esc(title), inner))
+
+
+def render_steps(title, items):
+    rows = ""
+    for i, (t, d) in enumerate(items, 1):
+        rows += ('<div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px">'
+                 '<div style="flex:0 0 40px;height:40px;border-radius:50%%;background:%s;color:#fff;text-align:center;'
+                 'line-height:40px;font-weight:700">%d</div>'
+                 '<div><div style="font-weight:700;color:%s;line-height:1.8">%s</div>'
+                 '<div style="font-size:16px;line-height:1.9;color:%s">%s</div></div></div>'
+                 % (ORANGE, i, NAVY, esc(t), MUTED, esc(d)))
+    return info_wrap(title, rows)
+
+
+def render_checklist(title, items):
+    rows = ""
+    for t, d in items:
+        rows += ('<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px">'
+                 '<div style="flex:0 0 28px;height:28px;border-radius:8px;background:%s;color:#fff;text-align:center;'
+                 'line-height:28px;font-weight:700">&#10003;</div>'
+                 '<div><span style="font-weight:700;color:%s">%s</span>'
+                 '<span style="color:%s"> %s</span></div></div>'
+                 % (ORANGE, NAVY, esc(t), MUTED, ("— " + esc(d)) if d else ""))
+    return info_wrap(title, rows)
+
+
+def render_compare(title, items, left, right):
+    head = ('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+            '<div style="background:%s;color:#fff;border-radius:10px;padding:.5em .8em;font-weight:700;text-align:center">%s</div>'
+            '<div style="background:%s;color:#fff;border-radius:10px;padding:.5em .8em;font-weight:700;text-align:center">%s</div></div>'
+            % ("#b91c1c", esc(left), "#15803d", esc(right)))
+    rows = ""
+    for a, b in items:
+        rows += ('<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+                 '<div style="background:#fff;border:1px solid #fecaca;border-radius:10px;padding:.6em .8em;line-height:1.9;color:%s">%s</div>'
+                 '<div style="background:#fff;border:1px solid #bbf7d0;border-radius:10px;padding:.6em .8em;line-height:1.9;color:%s">%s</div></div>'
+                 % (MUTED, esc(a), MUTED, esc(b)))
+    return info_wrap(title, head + rows)
+
+
+def make_infographic(sec_name, sec_html, kind):
+    text = plain(sec_html, 1800)
+    if kind == "compare":
+        fmt = ("TYPE: compare\nTITLE: عنوان کوتاه\nLEFT: عنوان ستون اول (مثلاً «اشتباه رایج»)\n"
+               "RIGHT: عنوان ستون دوم (مثلاً «روش درست»)\nITEM1: اشتباه | روش درست\nITEM2: ... | ...")
+        how = "یک مقایسه‌ی دوستونه (اشتباه رایج در برابر روش درست)"
+    elif kind == "checklist":
+        fmt = "TYPE: checklist\nTITLE: عنوان کوتاه\nITEM1: عنوان | توضیح کوتاه\nITEM2: ... | ..."
+        how = "یک چک‌لیست"
+    else:
+        fmt = "TYPE: steps\nTITLE: عنوان کوتاه\nITEM1: عنوان گام | توضیح کوتاه\nITEM2: ... | ..."
+        how = "یک نقشه‌ی گام‌به‌گام"
+    q = ("متن بخش «%s»:\n%s\n\nاز همین متن %s برای اینفوگرافیک بساز. فقط از مطالب همین متن استفاده کن و چیز تازه نساز. "
+         "۳ تا ۶ آیتم؛ عنوان هر آیتم حداکثر ۴ کلمه و توضیح حداکثر ۱۰ کلمه؛ فارسی روان و بدون کلمه‌ی انگلیسی.\n"
+         "دقیقاً در این قالب و بدون هیچ توضیح دیگر:\n%s" % (sec_name, text, how, fmt))
+    out = ask(q, 700, INFO_SYSTEM)
+    title = grab(out, "TITLE") or sec_name
+    items = []
+    for line in re.findall(r"^ITEM\d+\s*[:：]\s*(.+)$", out, re.M):
+        a, _, b = line.partition("|")
+        if a.strip():
+            items.append((a.strip(), b.strip()))
+    if len(items) < 3:
+        return ""
+    items = items[:6]
+    if kind == "compare":
+        return render_compare(title, [(a, b) for a, b in items if b], grab(out, "LEFT") or "اشتباه رایج", grab(out, "RIGHT") or "روش درست")
+    if kind == "checklist":
+        return render_checklist(title, items)
+    return render_steps(title, items)
+
+
+def pick_slots(hd):
+    n = len(hd)
+
+    def find(words):
+        for i in range(1, n - 1):
+            if any(w in hd[i][0] for w in words):
+                return i
+        return None
+    a = find(["قدم", "مراحل", "برنامه", "راهکار", "روش", "چطور", "چگونه"])
+    b = find(["اشتباه", "نشانه", "خطا", "مشکل", "چرا"])
+    if a is None:
+        a = max(2, min(n - 2, (n * 2) // 3))
+    if b is None or b == a:
+        b = 1 if a != 1 else 2
+    kind_b = "compare" if any(w in hd[b][0] for w in ["اشتباه", "خطا"]) else "checklist"
+    return [(a, "steps"), (b, kind_b)]
+
+
+def justify(h):
+    chunks = re.split(r"(<blockquote>.*?</blockquote>)", h, flags=re.S)
+    out = []
+    for c in chunks:
+        if c.startswith("<blockquote>"):
+            out.append(c)
+        else:
+            c = c.replace("<p>", '<p style="text-align:justify;text-justify:inter-word">')
+            c = c.replace("<li>", '<li style="text-align:justify">')
+            out.append(c)
+    return "".join(out)
+
+
 # ---------- شروع ----------
 try:
     r = wp("GET", WP + "/wp-json/wp/v2/users/me", auth=AUTH, timeout=45)
@@ -399,8 +519,10 @@ if IMG_MODEL and GAP:
              (grab(s, "IMG2"), grab(s, "ALT2") or title, "img2"),
              (grab(s, "IMG3"), grab(s, "ALT3") or title, "img3")]
     inline_slots = [1, 3]
-    ctxs = [title + ". " + plain(parts[0]), plain(parts[1]), plain(parts[min(3, len(parts) - 1)])]
+    ctxs = [title + ". Sections: " + " | ".join(n for n, _ in heads) + ". " + plain(parts[0]), plain(parts[1]), plain(parts[min(3, len(parts) - 1)])]
     for n, (idea, alt, tag) in enumerate(specs):
+        if n > 0 and not INLINE_AI_IMAGES:
+            continue
         try:
             brief = art_brief(title, ctxs[n], cover=(n == 0))
         except SystemExit:
@@ -428,11 +550,25 @@ if IMG_MODEL and GAP:
 else:
     print("IMAGE_MODEL not set: skipping images.")
 
+# اینفوگرافیک‌های متنی داخل مقاله
+for slot, kind in pick_slots(heads):
+    try:
+        if slot < len(parts):
+            block = make_infographic(heads[slot][0], parts[slot], kind)
+            if block:
+                parts[slot] += block
+                print("Infographic added after section %d (%s)" % (slot + 1, kind))
+            else:
+                print("Infographic skipped for section %d (not enough items)" % (slot + 1))
+    except SystemExit:
+        print("Infographic failed for section %d; skipping." % (slot + 1))
+
 html = "\n".join(parts)
 if faq:
     html += "\n<h2>سوالات متداول</h2>\n" + "".join("<h3>%s</h3>\n<p>%s</p>\n" % (q, a) for q, a in faq)
 
 focus = ", ".join([kw] + [x.strip() for x in kw2.split("،") if x.strip()][:2])
+html = justify(html)
 wrapped = '<div class="mm-article">' + html + "</div>"
 meta = {}
 meta["rank_math_title"] = meta_title
