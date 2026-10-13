@@ -371,15 +371,26 @@ tags = [x.strip() for x in grab(s, "TAGS").split("|") if x.strip()] or [x.strip(
 faq = [(grab(s, "Q%d" % i), grab(s, "A%d" % i)) for i in (1, 2, 3)]
 faq = [(q, a) for q, a in faq if q and a]
 
-cats = wp("GET", WP + "/wp-json/wp/v2/categories", params={"per_page": 100}, auth=AUTH, timeout=30).json()
-cat_ids = [c["id"] for c in cats if c["name"].strip() == row["category"].strip()]
+cat_ids = []
+try:
+    cr = wp("GET", WP + "/wp-json/wp/v2/categories", tries=3, auth=AUTH, timeout=60,
+            params={"search": row["category"].strip(), "per_page": 20, "_fields": "id,name"})
+    cats = cr.json()
+    cat_ids = [c["id"] for c in cats if c.get("name", "").strip() == row["category"].strip()]
+except Exception as e:
+    print("Category lookup failed (%s); continuing without category." % type(e).__name__)
+print("Category ids:", cat_ids)
+
 tag_ids = []
 for tg in tags[:5]:
-    tr = wp("POST", WP + "/wp-json/wp/v2/tags", auth=AUTH, json={"name": tg}, timeout=30)
-    if tr.status_code in (200, 201):
-        tag_ids.append(tr.json()["id"])
-    elif tr.status_code == 400 and "term_id" in tr.text:
-        tag_ids.append(tr.json()["data"]["term_id"])
+    try:
+        tr = wp("POST", WP + "/wp-json/wp/v2/tags", tries=3, auth=AUTH, json={"name": tg}, timeout=60)
+        if tr.status_code in (200, 201):
+            tag_ids.append(tr.json()["id"])
+        elif tr.status_code == 400 and "term_id" in tr.text:
+            tag_ids.append(tr.json()["data"]["term_id"])
+    except Exception as e:
+        print("Tag '%s' failed (%s); skipping." % (tg, type(e).__name__))
 
 # تصاویر: ۱ شاخص + ۲ داخل مقاله (اختیاری)
 featured_id = None
@@ -400,7 +411,11 @@ if IMG_MODEL and GAP:
         if not data:
             print("Image %d failed; skipping." % (n + 1))
             continue
-        mid, url, iw, ih = upload_image(data, "%s-%s" % (slug, tag), alt)
+        try:
+            mid, url, iw, ih = upload_image(data, "%s-%s" % (slug, tag), alt)
+        except Exception as e:
+            print("Image %d upload failed (%s); skipping." % (n + 1, type(e).__name__))
+            continue
         print("Image %d uploaded: id=%s" % (n + 1, mid))
         if not mid:
             continue
@@ -455,9 +470,12 @@ if post.status_code not in (200, 201):
 pid = post.json()["id"]
 print("Draft ID:", pid, "| edit:", "%s/wp-admin/post.php?post=%s&action=edit" % (WP, pid))
 
-chk = wp("GET", "%s/wp-json/wp/v2/posts/%s" % (WP, pid), params={"context": "edit"}, auth=AUTH, timeout=30).json()
-m = chk.get("meta") or {}
-print("Rank Math saved:", bool(m.get("rank_math_title")), "| focus:", m.get("rank_math_focus_keyword"))
+try:
+    chk = wp("GET", "%s/wp-json/wp/v2/posts/%s" % (WP, pid), tries=2, params={"context": "edit"}, auth=AUTH, timeout=60).json()
+    m = chk.get("meta") or {}
+    print("Rank Math saved:", bool(m.get("rank_math_title")), "| focus:", m.get("rank_math_focus_keyword"))
+except Exception as e:
+    print("Rank Math check skipped (%s)." % type(e).__name__)
 print("META_TITLE:", meta_title)
 print("META_DESC:", meta_desc)
 
