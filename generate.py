@@ -576,6 +576,70 @@ def make_pdf(doc):
         return None
 
 
+def branded_cover(title):
+    """کاور برندی ساخته‌شده با HTML (پشتیبان وقتی تصویر هوش مصنوعی ساخته نشود)."""
+    try:
+        from playwright.sync_api import sync_playwright
+        page = fill(
+            '<html lang="fa" dir="rtl"><body style="margin:0"><div style="width:1200px;height:800px;box-sizing:border-box;padding:90px 100px;'
+            'background:linear-gradient(135deg,@@navy@@ 0%,#0b1226 100%);color:#fff;'
+            "font-family:'Vazirmatn','Noto Sans Arabic','Noto Naskh Arabic','DejaVu Sans',sans-serif;"
+            'display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden">'
+            '<div style="position:absolute;left:-140px;top:-140px;width:460px;height:460px;border-radius:50%;background:@@o@@;opacity:.92"></div>'
+            '<div style="position:absolute;left:150px;bottom:-190px;width:380px;height:380px;border-radius:50%;border:34px solid @@o@@;opacity:.55"></div>'
+            '<div style="position:relative;font-size:30px;font-weight:700;color:@@o@@;letter-spacing:.5px">محمد مهاجر | استراتژیست رشد کسب‌وکار</div>'
+            '<div style="position:relative;font-size:70px;font-weight:800;line-height:1.7;max-width:900px">@@title@@</div>'
+            '<div style="position:relative;font-size:26px;opacity:.8">mohammadmohajer.ir</div></div></body></html>',
+            navy=NAVY, o=ORANGE, title=esc(title))
+        with sync_playwright() as p:
+            b = p.chromium.launch()
+            pg = b.new_page(viewport={"width": 1200, "height": 800})
+            pg.set_content(page, wait_until="load")
+            png = pg.screenshot(type="png")
+            b.close()
+        print("Branded cover generated.")
+        return png
+    except Exception as e:
+        print("Branded cover failed:", type(e).__name__, str(e)[:120])
+        return None
+
+
+def make_cover(title, ctx, alt, slug):
+    """تصویر شاخص: اول هوش مصنوعی (دو تلاش)، وگرنه کاور برندی. خروجی: (شناسه رسانه، base64، منبع)"""
+    data, source = None, "none"
+    if IMG_MODEL and GAP:
+        idea = ""
+        try:
+            idea = art_brief(title, ctx)
+        except SystemExit:
+            pass
+        idea = idea or "a clear visual metaphor for the main idea of a business strategy article"
+        print("Cover brief:", idea[:200])
+        for attempt in range(2):
+            try:
+                data = make_image(idea)
+            except Exception as e:
+                print("Image attempt %d error: %s" % (attempt + 1, type(e).__name__))
+                data = None
+            if data:
+                source = "ai"
+                break
+            print("AI cover attempt %d failed." % (attempt + 1))
+            time.sleep(20)
+    else:
+        print("IMAGE_MODEL or GapGPT key not set: using branded cover.")
+    if not data:
+        data = branded_cover(title)
+        source = "branded" if data else "none"
+    if not data:
+        return None, "", source
+    small = compress(data)
+    mime, ext = ("image/webp", "webp") if small[:4] == b"RIFF" else (("image/jpeg", "jpg") if small[:2] == b"\xff\xd8" else ("image/png", "png"))
+    mid, _ = upload_media(small, "%s-cover.%s" % (slug, ext), mime, alt)
+    print("Cover source: %s | media id: %s" % (source, mid))
+    return mid, base64.b64encode(small).decode(), source
+
+
 # ================= شروع =================
 if __name__ == "__main__":
     try:
@@ -723,29 +787,11 @@ A4: ...""" % (title, kw), 1800)
 
     # تصویر شاخص
     featured_id, cover_b64 = None, ""
-    if IMG_MODEL and GAP:
-        try:
-            ctx = title + ". Sections: " + " | ".join(n for n, _ in heads) + ". " + plain(parts[0])
-            brief = ""
-            try:
-                brief = art_brief(title, ctx)
-            except SystemExit:
-                pass
-            idea = brief or "a clear visual metaphor for the main idea of a business strategy article"
-            print("Cover brief:", idea[:200])
-            data = make_image(idea)
-            if data:
-                small = compress(data)
-                cover_b64 = base64.b64encode(small).decode()
-                mime, ext = ("image/webp", "webp") if small[:4] == b"RIFF" else (("image/jpeg", "jpg") if small[:2] == b"\xff\xd8" else ("image/png", "png"))
-                featured_id, _ = upload_media(small, "%s-cover.%s" % (slug, ext), mime, alt1)
-                print("Featured image ID:", featured_id)
-            else:
-                print("Cover image failed; continuing without image.")
-        except Exception as e:
-            print("Cover image step failed (%s); continuing." % type(e).__name__)
-    else:
-        print("IMAGE_MODEL not set: skipping cover image.")
+    try:
+        ctx = title + ". Sections: " + " | ".join(n for n, _ in heads) + ". " + plain(parts[0])
+        featured_id, cover_b64, cover_src = make_cover(title, ctx, alt1, slug)
+    except Exception as e:
+        print("Cover step failed (%s); continuing without cover." % type(e).__name__)
 
     # اینفوگرافیک‌ها (متنوع)
     for slot, kind in pick_slots(heads, rnd):
@@ -817,6 +863,10 @@ A4: ...""" % (title, kw), 1800)
         chk = wp("GET", "%s/wp-json/wp/v2/posts/%s" % (WP, pid), tries=2, params={"context": "edit"}, auth=AUTH, timeout=60).json()
         m = chk.get("meta") or {}
         print("Rank Math saved:", bool(m.get("rank_math_title")), "| focus:", m.get("rank_math_focus_keyword"))
+        if featured_id and chk.get("featured_media") != featured_id:
+            wp("POST", "%s/wp-json/wp/v2/posts/%s" % (WP, pid), tries=3, auth=AUTH, json={"featured_media": featured_id}, timeout=60)
+            print("Featured image re-attached.")
+        print("Featured image on post:", chk.get("featured_media"))
     except Exception as e:
         print("Rank Math check skipped (%s)." % type(e).__name__)
     print("META_TITLE:", meta_title)
