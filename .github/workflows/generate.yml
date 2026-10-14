@@ -24,6 +24,11 @@ jobs:
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+          MAGAZINE_URL: "https://mohammadmohajer.ir/category/business-growth-magazine/"
           LLM_MODEL: gpt-4o-mini
           IMAGE_MODEL: "gpt-image-2"
           IMAGE_SIZE: "1536x1024"
