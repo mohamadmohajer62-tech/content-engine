@@ -178,54 +178,78 @@ def extract_image(j):
     return None
 
 
+METAPHORS = [
+    (["بازار هدف", "مشتری ایده‌آل", "مشتری هدف"], "a target with tiny customer figurines standing on its rings and one arrow near the center", "target"),
+    (["هدف‌گذاری", "اهداف", "شاخص", "KPI"], "a classic dartboard with one dart in the bullseye, small bar-chart cards on a desk beside it", "target"),
+    (["رقابت", "رقبا", "رقابتی", "تمایز"], "a chessboard seen from a low angle with a white knight facing dark pieces", "rook"),
+    (["قیف", "لید", "سرنخ", "نرخ تبدیل", "تبدیل"], "a glass funnel pouring small coins and tiny customer figurines into a basket", "funnel"),
+    (["تحلیل", "داده", "SWOT", "داشبورد", "پایش", "اندازه", "سئو"], "a large magnifying glass over a bar chart with a rising line", "magnifier"),
+    (["استراتژی", "نقشه", "مسیر", "جهت", "برنامه"], "a brass compass resting on an unfolded map with a small flag marker", "compass"),
+    (["رشد", "نگهداشت", "وفاداری", "حفظ", "سیستم"], "a small plant growing out of a stack of coins on a staircase", "stairs"),
+    (["فروش", "اعتراض", "قیمت", "پیگیری"], "a shop counter with a cash register, a shopping bag and a rising sales chart on the wall", "funnel"),
+    (["محتوا", "تقویم", "نوشتن", "کپی"], "an open notebook with a pen, a monthly calendar and a small lamp on a wooden desk", "stairs"),
+    (["تصمیم", "سوگیری", "ذهنیت"], "a balance scale weighing a lightbulb against a stack of coins, with a signpost at a crossroads behind it", "magnifier"),
+    (["مشتری", "بازار"], "a group of tiny customer figurines walking toward a shop front along a path lit by warm lamps", "stairs"),
+    (["ارزش پیشنهادی", "ارزش"], "a gift box with an orange ribbon on a pedestal with soft spotlight", "target"),
+]
+
+
+def pick_metaphor(title, kw):
+    text = title + " " + kw
+    for words, desc, icon in METAPHORS:
+        if any(w in text for w in words):
+            return desc, icon
+    return "", "stairs"
+
+
 ART_SYSTEM = ("You are an art director for a Persian business-strategy blog. "
               "You write precise image briefs in English for an AI image generator.")
 
 
-def art_brief(title, context):
+def art_brief(title, context, hint=""):
+    use = ("Use this metaphor as the main object: %s. " % hint) if hint else (
+        "Choose ONE clear visual metaphor OBJECT tied to the article's core concept "
+        "(dartboard for goals, chessboard for competition, compass for strategy, funnel for sales funnels, "
+        "magnifying glass over a chart for analysis, scale for decisions, stairs for a roadmap). ")
     q = ("Article title (Persian): %s\nArticle summary (Persian): %s\n\n"
-         "Write ONE paragraph (45-70 words, English) describing a cover image for this article. "
-         "Choose ONE clear visual metaphor OBJECT that is directly tied to the article's core concept "
-         "(for example: a dartboard for goal-setting, a chessboard for competition or strategy, a compass for direction, "
-         "a funnel for sales funnels, a magnifying glass over a chart for analysis, a scale for decisions, "
-         "a key and lock for solving a hidden problem, stepping stones or stairs for a roadmap). "
-         "Pick the metaphor that best explains THIS topic, and add 2-4 specific details that tie it to the topic "
-         "(e.g. small shop, customers, coins, calendar, charts). "
-         "Describe the main object, its supporting details, the background, composition and lighting. "
+         "Write ONE paragraph (45-70 words, English) describing a cover image for this article. %s"
+         "Add 2-4 specific supporting details that tie the object to this exact topic (small shop, customers, coins, calendar, charts). "
+         "Describe the main object, the supporting details, the background, the composition and the lighting. "
          "The picture must contain no text, letters, numbers, logos or readable signs. "
          "If people appear they should look Iranian, but prefer an object-only composition. "
-         "Return only the paragraph." % (title, context))
+         "Return only the paragraph." % (title, context, use))
     out = ask(q, 400, ART_SYSTEM)
     out = re.sub(r"\s+", " ", out).strip().strip('"')
     return out if len(out) > 40 else ""
 
 
-def make_image(prompt):
-    if not (GAP and IMG_MODEL):
+def make_image(prompt, model=None):
+    model = model or IMG_MODEL
+    if not (GAP and model):
         return None
     full = IMG_STYLE + " " + prompt
     heads = {"Authorization": "Bearer " + GAP}
     attempts = []
     for size in (IMG_SIZE, None):
-        body = {"model": IMG_MODEL, "prompt": full, "n": 1}
+        body = {"model": model, "prompt": full, "n": 1}
         if size:
             body["size"] = size
         attempts.append((GAP_BASE + "/images/generations", body))
     attempts.append((GAP_BASE + "/chat/completions",
-                     {"model": IMG_MODEL, "messages": [{"role": "user", "content": "Generate an image: " + full}]}))
+                     {"model": model, "messages": [{"role": "user", "content": "Generate an image: " + full}]}))
     for url, body in attempts:
         try:
             r = requests.post(url, headers=heads, json=body, timeout=300)
         except Exception as e:
-            print("Image error:", type(e).__name__)
+            print("Image error [%s]: %s" % (model, type(e).__name__))
             continue
         if r.status_code != 200:
-            print("Image status", r.status_code, url.split("/v1")[1], r.text[:120])
+            print("Image status [%s] %s %s" % (model, r.status_code, r.text[:300]))
             continue
         img = extract_image(r.json())
         if img and len(img) > 1000:
             return img
-        print("Image response had no image", url.split("/v1")[1])
+        print("Image response had no image [%s] %s" % (model, url.split("/v1")[1]))
     return None
 
 
@@ -409,37 +433,12 @@ def pick_slots(hd, rnd):
     return [(a, ka), (b, kb)]
 
 
-HERO_BTN = '<!--PDFBTN-->'
-
-
-def build_hero(variant, takeaways, minutes):
-    meta = fill('<span style="font-size:15px;opacity:.85">زمان مطالعه: @@m@@ دقیقه</span>', m=fa(minutes))
-    if variant == 0:
-        lis = "".join(fill('<div style="display:flex;gap:10px;margin:.45em 0;line-height:1.9"><span style="color:@@o@@;font-weight:700">&#10003;</span><span>@@t@@</span></div>',
-                           o=ORANGE, t=esc(t)) for t in takeaways)
-        return fill('<div dir="rtl" style="margin:0 0 1.6em;padding:1.4em 1.6em;border-radius:16px;background:@@navy@@;color:#fff;text-align:right">'
-                    '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:.6em">'
-                    '<div style="font-weight:800;font-size:22px">در این مقاله می‌خوانید</div>@@meta@@</div>@@lis@@'
-                    '<div style="margin-top:1em">@@btn@@</div></div>\n', navy=NAVY, meta=meta, lis=lis, btn=HERO_BTN)
-    if variant == 1:
-        lis = "".join(fill('<li style="margin:.4em 0;line-height:1.9;color:@@m@@">@@t@@</li>', m=MUTED, t=esc(t)) for t in takeaways)
-        return fill('<div dir="rtl" style="margin:0 0 1.6em;padding:1.3em 1.5em;border-radius:12px;background:#fff7ed;'
-                    'border-right:6px solid @@o@@;text-align:right"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;'
-                    'align-items:center"><div style="font-weight:800;font-size:21px;color:@@navy@@">خلاصه‌ی سریع</div>'
-                    '<span style="font-size:15px;color:@@m@@">زمان مطالعه: @@mn@@ دقیقه</span></div>'
-                    '<ul style="margin:.7em 1.2em .8em 0;padding:0">@@lis@@</ul><div>@@btn@@</div></div>\n',
-                    o=ORANGE, navy=NAVY, m=MUTED, mn=fa(minutes), lis=lis, btn=HERO_BTN)
-    cards = "".join(fill('<div style="background:#fff;border:1px solid @@line@@;border-radius:12px;padding:.8em 1em;display:flex;gap:10px;align-items:flex-start">'
-                         '<span style="flex:0 0 30px;height:30px;border-radius:50%;background:@@o@@;color:#fff;text-align:center;line-height:30px;font-weight:700">@@n@@</span>'
-                         '<span style="line-height:1.9;color:@@navy@@">@@t@@</span></div>', line=LINE, o=ORANGE, navy=NAVY, n=fa(i), t=esc(t))
-                    for i, t in enumerate(takeaways, 1))
-    return fill('<div dir="rtl" style="margin:0 0 1.6em;padding:1.3em;border-radius:16px;background:@@soft@@;border:1px solid @@line@@;text-align:right">'
-                '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:.8em">'
-                '<div style="font-weight:800;font-size:21px;color:@@navy@@">نکته‌های کلیدی</div>'
-                '<span style="font-size:15px;color:@@m@@">زمان مطالعه: @@mn@@ دقیقه</span></div>'
-                '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px">@@cards@@</div>'
-                '<div style="margin-top:1em">@@btn@@</div></div>\n',
-                soft=SOFT, line=LINE, navy=NAVY, m=MUTED, mn=fa(minutes), cards=cards, btn=HERO_BTN)
+def build_hero(title, subtitle):
+    sub = ('<div style="margin-top:.7em;font-size:19px;line-height:2;opacity:.88">%s</div>' % esc(subtitle)) if subtitle else ""
+    return ('<div dir="rtl" style="margin:0 0 1.6em;padding:1.8em 2em;border-radius:18px;'
+            'background:linear-gradient(135deg,#1b2a4a 0%%,#0f172e 100%%);color:#fff;text-align:right;'
+            'border-right:8px solid #e8590c">'
+            '<div style="font-weight:800;font-size:30px;line-height:1.7">%s</div>%s</div>\n' % (esc(title), sub))
 
 
 def build_toc(items):
@@ -576,60 +575,88 @@ def make_pdf(doc):
         return None
 
 
-def branded_cover(title):
-    """کاور برندی ساخته‌شده با HTML (پشتیبان وقتی تصویر هوش مصنوعی ساخته نشود)."""
+ICONS = {
+    "target": '<circle cx="200" cy="200" r="170" fill="#fff" opacity=".12"/><circle cx="200" cy="200" r="125" fill="none" stroke="#fff" stroke-width="14" opacity=".8"/>'
+              '<circle cx="200" cy="200" r="80" fill="none" stroke="#fff" stroke-width="14" opacity=".8"/><circle cx="200" cy="200" r="32" fill="@@o@@"/>'
+              '<line x1="200" y1="200" x2="335" y2="65" stroke="@@o@@" stroke-width="12" stroke-linecap="round"/><polygon points="335,65 300,72 328,100" fill="@@o@@"/>',
+    "funnel": '<polygon points="40,70 360,70 240,210 240,340 160,300 160,210" fill="@@o@@"/><circle cx="120" cy="40" r="22" fill="#fff" opacity=".85"/>'
+              '<circle cx="200" cy="25" r="22" fill="#fff" opacity=".85"/><circle cx="280" cy="40" r="22" fill="#fff" opacity=".85"/>',
+    "stairs": '<rect x="40" y="290" width="70" height="60" fill="#fff" opacity=".85"/><rect x="110" y="235" width="70" height="115" fill="@@o@@"/>'
+              '<rect x="180" y="180" width="70" height="170" fill="#fff" opacity=".85"/><rect x="250" y="125" width="70" height="225" fill="@@o@@"/>'
+              '<polygon points="285,40 335,100 235,100" fill="#fff"/>',
+    "magnifier": '<circle cx="170" cy="170" r="115" fill="#fff" opacity=".1" stroke="#fff" stroke-width="22"/><line x1="255" y1="255" x2="350" y2="350" stroke="@@o@@" stroke-width="32" stroke-linecap="round"/>'
+                 '<rect x="105" y="170" width="30" height="55" fill="@@o@@"/><rect x="155" y="135" width="30" height="90" fill="#fff"/><rect x="205" y="105" width="30" height="120" fill="@@o@@"/>',
+    "compass": '<circle cx="200" cy="200" r="160" fill="none" stroke="#fff" stroke-width="14" opacity=".85"/><polygon points="200,60 235,200 165,200" fill="@@o@@"/>'
+               '<polygon points="200,340 235,200 165,200" fill="#fff" opacity=".9"/><circle cx="200" cy="200" r="14" fill="#0b1226"/>',
+    "rook": '<rect x="85" y="305" width="230" height="40" rx="6" fill="#fff" opacity=".9"/><rect x="120" y="140" width="160" height="165" fill="#fff" opacity=".9"/>'
+            '<rect x="100" y="105" width="200" height="38" fill="#fff"/><rect x="100" y="62" width="44" height="48" fill="#fff"/><rect x="178" y="62" width="44" height="48" fill="#fff"/>'
+            '<rect x="256" y="62" width="44" height="48" fill="#fff"/><rect x="150" y="215" width="100" height="14" fill="@@o@@"/>',
+}
+
+
+def branded_cover(title, icon="stairs"):
+    """کاور برندی ساخته‌شده با HTML و آیکون استعاری (پشتیبان وقتی تصویر هوش مصنوعی ساخته نشود)."""
     try:
         from playwright.sync_api import sync_playwright
+        svg = fill('<svg viewBox="0 0 400 400" width="380" height="380" xmlns="http://www.w3.org/2000/svg">%s</svg>' % ICONS.get(icon, ICONS["stairs"]), o=ORANGE)
         page = fill(
-            '<html lang="fa" dir="rtl"><body style="margin:0"><div style="width:1200px;height:800px;box-sizing:border-box;padding:90px 100px;'
+            '<html lang="fa" dir="rtl"><body style="margin:0"><div style="width:1200px;height:800px;box-sizing:border-box;padding:80px 90px;'
             'background:linear-gradient(135deg,@@navy@@ 0%,#0b1226 100%);color:#fff;'
             "font-family:'Vazirmatn','Noto Sans Arabic','Noto Naskh Arabic','DejaVu Sans',sans-serif;"
             'display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden">'
-            '<div style="position:absolute;left:-140px;top:-140px;width:460px;height:460px;border-radius:50%;background:@@o@@;opacity:.92"></div>'
-            '<div style="position:absolute;left:150px;bottom:-190px;width:380px;height:380px;border-radius:50%;border:34px solid @@o@@;opacity:.55"></div>'
-            '<div style="position:relative;font-size:30px;font-weight:700;color:@@o@@;letter-spacing:.5px">محمد مهاجر | استراتژیست رشد کسب‌وکار</div>'
-            '<div style="position:relative;font-size:70px;font-weight:800;line-height:1.7;max-width:900px">@@title@@</div>'
+            '<div style="position:absolute;left:-150px;bottom:-150px;width:520px;height:520px;border-radius:50%;background:@@o@@;opacity:.18"></div>'
+            '<div style="position:relative;font-size:28px;font-weight:700;color:@@o@@">محمد مهاجر | استراتژیست رشد کسب‌وکار</div>'
+            '<div style="position:relative;display:flex;align-items:center;justify-content:space-between;gap:40px">'
+            '<div style="font-size:62px;font-weight:800;line-height:1.75;max-width:640px">@@title@@</div>'
+            '<div style="flex:0 0 380px">@@svg@@</div></div>'
             '<div style="position:relative;font-size:26px;opacity:.8">mohammadmohajer.ir</div></div></body></html>',
-            navy=NAVY, o=ORANGE, title=esc(title))
+            navy=NAVY, o=ORANGE, title=esc(title), svg=svg)
         with sync_playwright() as p:
             b = p.chromium.launch()
             pg = b.new_page(viewport={"width": 1200, "height": 800})
             pg.set_content(page, wait_until="load")
             png = pg.screenshot(type="png")
             b.close()
-        print("Branded cover generated.")
+        print("Branded cover generated (icon: %s)." % icon)
         return png
     except Exception as e:
         print("Branded cover failed:", type(e).__name__, str(e)[:120])
         return None
 
 
-def make_cover(title, ctx, alt, slug):
-    """تصویر شاخص: اول هوش مصنوعی (دو تلاش)، وگرنه کاور برندی. خروجی: (شناسه رسانه، base64، منبع)"""
+def make_cover(title, ctx, alt, slug, kw=""):
+    """تصویر شاخص: هوش مصنوعی (چند مدل پشت‌سرهم)، وگرنه کاور برندی. خروجی: (شناسه رسانه، base64، منبع)"""
     data, source = None, "none"
+    hint, icon = pick_metaphor(title, kw)
+    print("Metaphor hint:", hint or "(none)", "| icon:", icon)
     if IMG_MODEL and GAP:
         idea = ""
         try:
-            idea = art_brief(title, ctx)
+            idea = art_brief(title, ctx, hint)
         except SystemExit:
             pass
-        idea = idea or "a clear visual metaphor for the main idea of a business strategy article"
-        print("Cover brief:", idea[:200])
-        for attempt in range(2):
+        idea = idea or hint or "a clear visual metaphor for the main idea of a business strategy article"
+        print("Cover brief:", idea[:220])
+        models = [IMG_MODEL] + [m.strip() for m in os.environ.get("IMAGE_FALLBACKS", "gapgpt/qwen-image-2.1,gpt-image-1-mini").split(",") if m.strip()]
+        seen = []
+        for m in models:
+            if m in seen:
+                continue
+            seen.append(m)
             try:
-                data = make_image(idea)
+                data = make_image(idea, m)
             except Exception as e:
-                print("Image attempt %d error: %s" % (attempt + 1, type(e).__name__))
+                print("Image error [%s]: %s" % (m, type(e).__name__))
                 data = None
             if data:
-                source = "ai"
+                source = "ai:" + m
                 break
-            print("AI cover attempt %d failed." % (attempt + 1))
-            time.sleep(20)
+            print("AI cover failed with model %s." % m)
+            time.sleep(10)
     else:
         print("IMAGE_MODEL or GapGPT key not set: using branded cover.")
     if not data:
-        data = branded_cover(title)
+        data = branded_cover(title, icon)
         source = "branded" if data else "none"
     if not data:
         return None, "", source
@@ -736,10 +763,7 @@ META_DESC: ۱۴۰ تا ۱۶۰ کاراکتر، جذاب و بدون عبارت �
 EXCERPT: ۲ جمله
 TAGS: ۴ تا ۵ برچسب جداشده با علامت |
 ALT1: متن جایگزین تصویر شاخص به فارسی، یک جمله‌ی کوتاه شامل کلمه‌ی کلیدی
-TAKE1: مهم‌ترین درس مقاله در یک جمله‌ی کوتاه (حداکثر ۱۲ کلمه)
-TAKE2: ...
-TAKE3: ...
-TAKE4: ...
+SUB: یک زیرعنوان جذاب و کوتاه (حداکثر ۱۸ کلمه) که وعده‌ی مقاله را بگوید
 Q1: سؤال واقعی یک مدیر کسب‌وکار
 A1: پاسخ ۲ تا ۳ جمله
 Q2: ...
@@ -753,8 +777,7 @@ A4: ...""" % (title, kw), 1800)
     excerpt = grab(s, "EXCERPT")
     alt1 = grab(s, "ALT1") or title
     tags = [x.strip() for x in grab(s, "TAGS").split("|") if x.strip()] or [x.strip() for x in kw2.split("،") if x.strip()]
-    takeaways = [grab(s, "TAKE%d" % i) for i in range(1, 5)]
-    takeaways = [t for t in takeaways if t] or [n for n, _ in heads[1:5]]
+    subtitle = grab(s, "SUB") or (re.split(r"[.؟!]", excerpt)[0].strip() if excerpt else "")
     faq = [(grab(s, "Q%d" % i), grab(s, "A%d" % i)) for i in (1, 2, 3, 4)]
     faq = [(q, a) for q, a in faq if q and a]
 
@@ -789,7 +812,7 @@ A4: ...""" % (title, kw), 1800)
     featured_id, cover_b64 = None, ""
     try:
         ctx = title + ". Sections: " + " | ".join(n for n, _ in heads) + ". " + plain(parts[0])
-        featured_id, cover_b64, cover_src = make_cover(title, ctx, alt1, slug)
+        featured_id, cover_b64, cover_src = make_cover(title, ctx, alt1, slug, kw)
     except Exception as e:
         print("Cover step failed (%s); continuing without cover." % type(e).__name__)
 
@@ -828,9 +851,10 @@ A4: ...""" % (title, kw), 1800)
                 print("PDF upload failed (%s); continuing without button." % type(e).__name__)
     btn = pdf_button(pdf_url) if pdf_url else ""
 
-    hero = build_hero(SEED % 3, takeaways[:4], minutes).replace(HERO_BTN, btn)
+    hero = build_hero(title, subtitle)
+    top_btn = ('<div style="margin:0 0 1.6em;text-align:right">%s</div>' % btn) if btn else ""
     end_btn = ('<div style="margin:1.6em 0;text-align:center">%s</div>' % btn) if btn else ""
-    full = '<div class="mm-article">' + hero + build_toc(toc_items) + core + end_btn + "</div>"
+    full = '<div class="mm-article">' + hero + build_toc(toc_items) + top_btn + core + end_btn + "</div>"
 
     focus = ", ".join([kw] + [x.strip() for x in kw2.split("،") if x.strip()][:2])
     payload = {"title": title, "slug": slug, "content": full, "excerpt": excerpt,
