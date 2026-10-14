@@ -15,6 +15,13 @@ IMG_MODEL = os.environ.get("IMAGE_MODEL", "").strip()
 IMG_SIZE = os.environ.get("IMAGE_SIZE", "1536x1024").strip() or "1536x1024"
 GAP_BASE = "https://api.gapgpt.app/v1"
 MAKE_PDF = os.environ.get("MAKE_PDF", "1").strip() != "0"
+MAGAZINE_NAME = "مجله رشد کسب‌وکار"
+MAGAZINE_URL = os.environ.get("MAGAZINE_URL", "").strip() or "https://mohammadmohajer.ir/"
+AUTHOR_LINE = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
+TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+BALE_TOKEN = os.environ.get("BALE_BOT_TOKEN", "").strip()
+BALE_CHAT = os.environ.get("BALE_CHAT_ID", "").strip()
 
 S = requests.Session()
 S.headers.update({"User-Agent": "Mozilla/5.0 (compatible; ContentEngine/1.0; +https://mohammadmohajer.ir)"})
@@ -433,12 +440,15 @@ def pick_slots(hd, rnd):
     return [(a, ka), (b, kb)]
 
 
+HERO_C1, HERO_C2, HERO_BAR = "#CC6A45", "#A84F31", "#F6E7D2"
+
+
 def build_hero(title, subtitle):
-    sub = ('<div style="margin-top:.7em;font-size:19px;line-height:2;opacity:.88">%s</div>' % esc(subtitle)) if subtitle else ""
+    sub = ('<div style="margin-top:.7em;font-size:19px;line-height:2;color:#fff7ed">%s</div>' % esc(subtitle)) if subtitle else ""
     return ('<div dir="rtl" style="margin:0 0 1.6em;padding:1.8em 2em;border-radius:18px;'
-            'background:linear-gradient(135deg,#1b2a4a 0%%,#0f172e 100%%);color:#fff;text-align:right;'
-            'border-right:8px solid #e8590c">'
-            '<div style="font-weight:800;font-size:30px;line-height:1.7">%s</div>%s</div>\n' % (esc(title), sub))
+            'background:linear-gradient(135deg,%s 0%%,%s 100%%);color:#fff;text-align:right;'
+            'border-right:8px solid %s">'
+            '<div style="font-weight:800;font-size:30px;line-height:1.7">%s</div>%s</div>\n' % (HERO_C1, HERO_C2, HERO_BAR, esc(title), sub))
 
 
 def build_toc(items):
@@ -527,8 +537,122 @@ def build_sources(entries):
     lis = "".join(fill('<div style="margin-bottom:.7em;line-height:1.9"><a href="@@u@@" target="_blank" rel="noopener noreferrer" '
                        'style="color:@@o@@;font-weight:700;text-decoration:none">@@t@@</a><span style="color:@@m@@"> — @@s@@</span></div>',
                        u=esc(r["url"]), o=ORANGE, t=esc(r["title"]), m=MUTED, s=esc(r.get("site", ""))) for r in entries)
-    return ('<h2 id="mm-src" style="scroll-margin-top:90px">برای مطالعه‌ی بیشتر</h2>\n'
-            '<div dir="rtl" style="line-height:1.9;color:%s;margin-bottom:.8em">این منابع برای مطالعه‌ی تکمیلی انتخاب شده‌اند:</div>\n%s\n' % (MUTED, lis))
+    return fill('<details id="mm-src" dir="rtl" style="margin:1.6em 0;border:1px solid @@line@@;border-radius:12px;background:#fff;padding:0 1.1em;text-align:right;scroll-margin-top:90px">'
+                '<summary style="cursor:pointer;font-weight:800;padding:.8em 0;color:@@navy@@">برای مطالعه‌ی بیشتر (منابع)</summary>'
+                '<div style="padding-bottom:.6em"><div style="line-height:1.9;color:@@m@@;margin-bottom:.8em">این منابع برای مطالعه‌ی تکمیلی انتخاب شده‌اند:</div>@@lis@@</div></details>\n',
+                line=LINE, navy=NAVY, m=MUTED, lis=lis)
+
+
+# ---------------- لینک‌سازی داخلی ----------------
+def fetch_published():
+    items = []
+    try:
+        r = wp("GET", WP + "/wp-json/wp/v2/posts", tries=3, auth=AUTH, timeout=90,
+               params={"status": "publish", "per_page": 100, "context": "edit", "_fields": "id,link,title,slug,meta"})
+        if r.status_code != 200:
+            print("Published posts fetch status", r.status_code)
+            return items
+        for p in r.json():
+            t = p.get("title") or {}
+            title = plain(t.get("raw") or t.get("rendered") or "", 200)
+            focus = ((p.get("meta") or {}).get("rank_math_focus_keyword") or "")
+            if title and p.get("link"):
+                items.append({"id": str(p["id"]), "url": p["link"], "title": title, "focus": focus})
+    except Exception as e:
+        print("Published posts fetch failed (%s); skipping internal links." % type(e).__name__)
+    print("Published posts found:", len(items))
+    return items
+
+
+def pick_related(title, kw, items, slug):
+    cand = [i for i in items if slug not in i["url"]]
+    if not cand:
+        return []
+    listing = "\n".join("%s | %s | %s" % (i["id"], i["title"], i["focus"]) for i in cand[:80])
+    out = ask("مقاله‌ی جدید: «%s» | کلمه‌ی کلیدی: %s\n\nمقاله‌های منتشرشده (شناسه | عنوان | کلمه‌ی کلیدی):\n%s\n\n"
+              "حداکثر ۴ مقاله را که از نظر موضوعی بیشترین ارتباط را با مقاله‌ی جدید دارند انتخاب کن (اگر ارتباطی نیست، کمتر انتخاب کن). "
+              "فقط شناسه‌ها را بده، در یک خط:\nPICK: 12, 7, 3" % (title, kw, listing), 100,
+              "You pick relevant ids from a given list. Answer only in the requested format.", 5)
+    ids = re.findall(r"\d+", grab(out, "PICK"))
+    chosen = [i for x in ids for i in cand if i["id"] == x]
+    if not chosen:
+        words = set(re.findall(r"\w+", title + " " + kw))
+        chosen = [i for i in sorted(cand, key=lambda i: -len(words & set(re.findall(r"\w+", i["title"] + " " + i["focus"]))))
+                  if words & set(re.findall(r"\w+", i["title"] + " " + i["focus"]))][:3]
+    seen, final = set(), []
+    for i in chosen:
+        if i["id"] not in seen:
+            seen.add(i["id"])
+            final.append(i)
+    return final[:4]
+
+
+def anchors_for(item):
+    cands = [x.strip() for x in re.split(r"[,،]", item.get("focus", "")) if len(x.strip()) >= 4]
+    cands.sort(key=lambda x: -len(x))
+    return cands
+
+
+def add_inline_links(parts, targets, max_links=3):
+    count = 0
+    style = "color:%s;text-decoration:underline;font-weight:600" % ORANGE
+    for t in targets:
+        if count >= max_links:
+            break
+        placed = False
+        for a in anchors_for(t):
+            for idx, part in enumerate(parts):
+                for m in re.finditer(r"<p>(.*?)</p>", part, flags=re.S):
+                    inner = m.group(1)
+                    if "<a " in inner or a not in inner:
+                        continue
+                    link = '<a href="%s" title="%s" style="%s">%s</a>' % (esc(t["url"]), esc(t["title"]), style, a)
+                    parts[idx] = part[:m.start(1)] + inner.replace(a, link, 1) + part[m.end(1):]
+                    placed = True
+                    print("Internal link: '%s' -> %s" % (a, t["url"]))
+                    break
+                if placed:
+                    break
+            if placed:
+                break
+        if placed:
+            count += 1
+    return count
+
+
+def build_related(targets):
+    if not targets:
+        return ""
+    items = "".join(fill('<a href="@@u@@" style="display:block;padding:.75em 1em;border:1px solid @@line@@;border-right:5px solid @@o@@;border-radius:10px;'
+                         'margin-bottom:8px;color:@@navy@@;text-decoration:none;font-weight:700;background:#fff">@@t@@</a>',
+                         u=esc(t["url"]), line=LINE, o=ORANGE, navy=NAVY, t=esc(t["title"])) for t in targets)
+    return '<h2 id="mm-rel" style="scroll-margin-top:90px">مقاله‌های مرتبط</h2>\n' + items + "\n"
+
+
+def build_cta():
+    return fill('<div dir="rtl" style="margin:2em 0 1em;padding:1.5em 1.6em;border-radius:16px;background:#fff7ed;border:1px solid #fed7aa;text-align:center">'
+                '<div style="font-weight:800;font-size:21px;color:@@navy@@;margin-bottom:.4em">مقاله‌های بیشتر @@mag@@</div>'
+                '<div style="color:@@m@@;line-height:1.9;margin-bottom:1em">برای خواندن تحلیل‌ها و راهکارهای تازه‌ی رشد کسب‌وکار به مجله سر بزنید.</div>'
+                '<a href="@@u@@" style="display:inline-block;background:@@o@@;color:#fff;padding:.65em 1.4em;border-radius:10px;font-weight:700;text-decoration:none">دیدن مقاله‌های بیشتر</a></div>\n',
+                navy=NAVY, mag=MAGAZINE_NAME, m=MUTED, u=esc(MAGAZINE_URL), o=ORANGE)
+
+
+# ---------------- اعلان تلگرام و بله ----------------
+def notify(text):
+    targets = [("Telegram", "https://api.telegram.org/bot%s/sendMessage", TG_TOKEN, TG_CHAT),
+               ("Bale", "https://tapi.bale.ai/bot%s/sendMessage", BALE_TOKEN, BALE_CHAT)]
+    sent = 0
+    for name, url, tok, chat in targets:
+        if not (tok and chat):
+            continue
+        try:
+            r = requests.post(url % tok, json={"chat_id": chat, "text": text, "disable_web_page_preview": True}, timeout=30)
+            print("Notify %s: %s %s" % (name, r.status_code, "" if r.status_code == 200 else r.text[:150]))
+            sent += 1 if r.status_code == 200 else 0
+        except Exception as e:
+            print("Notify %s failed: %s" % (name, type(e).__name__))
+    if not sent:
+        print("Notify: no message delivered (tokens missing or services unreachable).")
 
 
 # ---------------- PDF ----------------
@@ -551,9 +675,12 @@ a { color:@@o@@; text-decoration:none; }
 .foot { margin-top:26px; padding-top:8px; border-top:1px solid #e3e8f0; color:#64748b; font-size:10pt; text-align:center; }
 """.replace("@@o@@", ORANGE).replace("@@navy@@", NAVY)
     return ('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><style>%s</style></head><body>'
-            '<div class="brand">محمد مهاجر | استراتژیست رشد کسب‌وکار</div><h1>%s</h1>'
+            '<div class="brand"><a href="%s">%s</a></div><h1>%s</h1>'
             '<div class="meta">زمان مطالعه: %s دقیقه</div>%s%s'
-            '<div class="foot">mohammadmohajer.ir</div></body></html>' % (css, esc(title), fa(minutes), cover, core))
+            '<div class="foot"><div>برای مطالعه‌ی مقاله‌های بیشتر به <a href="%s">%s</a> سر بزنید.</div>'
+            '<div style="margin-top:4px">%s — <a href="%s">mohammadmohajer.ir</a></div></div></body></html>'
+            % (css, esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(title), fa(minutes), cover, core,
+               esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(AUTHOR_LINE), esc(WP)))
 
 
 def make_pdf(doc):
@@ -788,6 +915,17 @@ A4: ...""" % (title, kw), 1800)
         sources = []
     print("Sources:", [r["url"] for r in sources])
 
+    # لینک‌سازی داخلی
+    related = []
+    try:
+        related = pick_related(title, kw, fetch_published(), slug)
+    except SystemExit:
+        related = []
+    except Exception as e:
+        print("Related posts step failed (%s); skipping." % type(e).__name__)
+    n_links = add_inline_links(parts, related) if related else 0
+    print("Related posts:", [r["url"] for r in related], "| inline links:", n_links)
+
     # دسته و برچسب
     cat_ids = []
     try:
@@ -831,14 +969,17 @@ A4: ...""" % (title, kw), 1800)
 
     # مونتاژ
     faq_html = build_faq(faq) if faq else ""
+    rel_html = build_related(related)
     src_html = build_sources(sources)
-    core = justify("\n".join(parts)) + faq_html + src_html
+    core = justify("\n".join(parts)) + faq_html + rel_html + src_html
 
     toc_items = [("mm-s%d" % i, heads[i][0]) for i in range(1, len(heads))]
     if faq_html:
         toc_items.append(("mm-faq", "سوالات متداول"))
+    if rel_html:
+        toc_items.append(("mm-rel", "مقاله‌های مرتبط"))
     if src_html:
-        toc_items.append(("mm-src", "برای مطالعه‌ی بیشتر"))
+        toc_items.append(("mm-src", "برای مطالعه‌ی بیشتر (منابع)"))
 
     pdf_url = None
     if MAKE_PDF:
@@ -854,7 +995,7 @@ A4: ...""" % (title, kw), 1800)
     hero = build_hero(title, subtitle)
     top_btn = ('<div style="margin:0 0 1.6em;text-align:right">%s</div>' % btn) if btn else ""
     end_btn = ('<div style="margin:1.6em 0;text-align:center">%s</div>' % btn) if btn else ""
-    full = '<div class="mm-article">' + hero + build_toc(toc_items) + top_btn + core + end_btn + "</div>"
+    full = '<div class="mm-article">' + hero + build_toc(toc_items) + top_btn + core + end_btn + build_cta() + "</div>"
 
     focus = ", ".join([kw] + [x.strip() for x in kw2.split("،") if x.strip()][:2])
     payload = {"title": title, "slug": slug, "content": full, "excerpt": excerpt,
@@ -904,3 +1045,6 @@ A4: ...""" % (title, kw), 1800)
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         w.writerows(rows)
+
+    notify("پیش‌نویس جدید در سایت منتشر شد و آماده‌ی بازبینی است.\n\nعنوان: %s\nزمان مطالعه: %s دقیقه\n\nویرایش:\n%s/wp-admin/post.php?post=%s&action=edit\n\nپیش‌نمایش:\n%s/?p=%s&preview=true"
+           % (title, fa(minutes), WP, pid, WP, pid))
