@@ -12,6 +12,6 @@ jobs:
       - run: pip install requests
       - name: Get chat ids
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.8893173215:AAGI3mddmHoLXtNuPpeFKWYEMxZ9sBTNaIY }}
-          BALE_BOT_TOKEN: ${{ secrets.73419767:M9HEIs96Xq-w2l-J-ThNDKCxiCpftmrI8iM }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
         run: python get_chat_ids.py
