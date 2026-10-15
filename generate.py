@@ -28,9 +28,10 @@ S.headers.update({"User-Agent": "Mozilla/5.0 (compatible; ContentEngine/1.0; +ht
 S.mount("https://", HTTPAdapter(max_retries=Retry(total=5, connect=5, read=4, backoff_factor=5,
                                                    status_forcelist=[502, 503, 504])))
 
-IMG_STYLE = ("Clean professional flat business illustration, bold simple shapes, soft depth, deep navy and warm orange palette, "
-             "one clear central metaphor object, generous empty space, wide 3:2 composition. "
-             "No text, no letters, no numbers, no logos.")
+IMG_STYLE = ("Authentic documentary-style editorial photograph of everyday Iranian business life, realistic and candid, "
+             "natural warm ambient light, rich earthy colors, shallow depth of field, people with natural Iranian appearance and modest professional clothing, "
+             "real textures, wide 3:2 composition, high detail. No text, no letters, no numbers, no logos, no watermarks.")
+QUOTA_LOW = False
 try:
     _st = open("image-style.txt", encoding="utf-8").read().strip()
     if _st:
@@ -185,28 +186,69 @@ def extract_image(j):
     return None
 
 
-METAPHORS = [
-    (["بازار هدف", "مشتری ایده‌آل", "مشتری هدف"], "a target with tiny customer figurines standing on its rings and one arrow near the center", "target"),
-    (["هدف‌گذاری", "اهداف", "شاخص", "KPI"], "a classic dartboard with one dart in the bullseye, small bar-chart cards on a desk beside it", "target"),
-    (["رقابت", "رقبا", "رقابتی", "تمایز"], "a chessboard seen from a low angle with a white knight facing dark pieces", "rook"),
-    (["قیف", "لید", "سرنخ", "نرخ تبدیل", "تبدیل"], "a glass funnel pouring small coins and tiny customer figurines into a basket", "funnel"),
-    (["تحلیل", "داده", "SWOT", "داشبورد", "پایش", "اندازه", "سئو"], "a large magnifying glass over a bar chart with a rising line", "magnifier"),
-    (["استراتژی", "نقشه", "مسیر", "جهت", "برنامه"], "a brass compass resting on an unfolded map with a small flag marker", "compass"),
-    (["رشد", "نگهداشت", "وفاداری", "حفظ", "سیستم"], "a small plant growing out of a stack of coins on a staircase", "stairs"),
-    (["فروش", "اعتراض", "قیمت", "پیگیری"], "a shop counter with a cash register, a shopping bag and a rising sales chart on the wall", "funnel"),
-    (["محتوا", "تقویم", "نوشتن", "کپی"], "an open notebook with a pen, a monthly calendar and a small lamp on a wooden desk", "stairs"),
-    (["تصمیم", "سوگیری", "ذهنیت"], "a balance scale weighing a lightbulb against a stack of coins, with a signpost at a crossroads behind it", "magnifier"),
-    (["مشتری", "بازار"], "a group of tiny customer figurines walking toward a shop front along a path lit by warm lamps", "stairs"),
-    (["ارزش پیشنهادی", "ارزش"], "a gift box with an orange ribbon on a pedestal with soft spotlight", "target"),
+SCENES = [
+    (["اینستاگرام", "شبکه‌های اجتماعی", "پیج"], [
+        "a young Iranian boutique owner photographing a dress on a mannequin with her phone inside a bright shop, racks of clothes behind",
+        "an Iranian pastry shop owner filming a tray of fresh cakes with his phone at the counter, glass display cabinet in the background"], "stairs"),
+    (["بازار هدف", "مشتری ایده‌آل", "مشتری هدف", "پرسونا", "بخش‌بندی"], [
+        "a shopkeeper in a traditional Tehran bazaar spice shop explaining products to a customer while an elderly man sips tea, glass jars of dried herbs and Persian rugs around",
+        "an Iranian supermarket manager observing shoppers in a busy aisle with a tablet in hand, fresh produce and shelves behind"], "target"),
+    (["هدف‌گذاری", "اهداف", "KPI", "شاخص", "برنامه ۹۰", "اجرای استراتژی"], [
+        "an Iranian manager standing at a whiteboard with quarterly goals while two colleagues listen in a modern office, tea glasses on the table",
+        "a factory manager and a supervisor reviewing a production target board on the workshop wall, workers softly blurred behind"], "target"),
+    (["رقابت", "رقبا", "رقابتی", "تمایز"], [
+        "two neighbouring shops facing each other on a lively Iranian city street, each owner standing proudly at the door, warm afternoon light",
+        "an Iranian bazaar alley with rival carpet sellers displaying their wares to passing customers, arched ceilings and warm light"], "rook"),
+    (["قیف", "لید", "سرنخ", "نرخ تبدیل"], [
+        "an Iranian shop owner at the counter receiving a customer who just walked in, a small queue of shoppers visible behind, warm interior light",
+        "a salesperson in a hypermarket greeting a customer at the entrance, shopping carts and bright aisles behind"], "funnel"),
+    (["تحلیل", "داده", "SWOT", "داشبورد", "پایش", "اندازه"], [
+        "an Iranian analyst showing charts on a laptop to a manager in a glass-walled office, city skyline softly blurred outside",
+        "a small-business owner checking sales figures on a tablet in the back office of a shop, boxes of stock behind him"], "magnifier"),
+    (["سئو", "کلمات کلیدی", "کلمه کلیدی"], [
+        "an Iranian marketer working on a laptop in a bright coworking space, notes and a coffee cup on the desk, colleagues softly blurred",
+        "a young Iranian woman reviewing website analytics on a monitor in a startup office, plants and shelves behind"], "magnifier"),
+    (["استراتژی محتوا", "محتوا", "تقویم", "نوشتن", "کپی"], [
+        "an Iranian content team planning around a wall calendar covered with sticky notes in a bright office",
+        "a writer and a designer reviewing a printed layout together at a shared desk, laptop and tea glasses nearby"], "stairs"),
+    (["برند", "صدا", "لحن", "تبلیغ"], [
+        "an Iranian shop owner hanging a new storefront sign above a neighbourhood shop while a customer watches, sunny street",
+        "a bazaar merchant calling out to passers-by in front of his colorful display, hanging fabrics and lanterns behind"], "funnel"),
+    (["استراتژی", "نقشه", "مسیر", "جهت", "برنامه"], [
+        "a group of Iranian managers around a large table with a printed roadmap and laptops in a corporate meeting room, tea glasses on the table",
+        "an Iranian factory owner and an engineer studying a plan on a clipboard on the production floor, machines behind"], "compass"),
+    (["سیستم", "فرآیند", "رشد کسب‌وکار"], [
+        "an Iranian production line in a modern workshop with a manager and a technician discussing the process, safety vests, machines blurred",
+        "a manager explaining a workflow chart on a glass wall to employees in a meeting room"], "stairs"),
+    (["رشد", "نگهداشت", "وفاداری", "حفظ"], [
+        "a neighbourhood shopkeeper warmly greeting a returning regular customer, a tea glass on the counter, shelves of goods behind",
+        "an Iranian hypermarket manager thanking a loyal customer at the checkout, bright store, baskets and shelves"], "stairs"),
+    (["فروش", "اعتراض", "قیمت", "پیگیری"], [
+        "an Iranian salesperson discussing prices with a customer across the counter of a home-appliance store, products on shelves behind",
+        "a boutique owner helping a customer choose a coat among racks of clothes, soft shop lighting"], "funnel"),
+    (["تصمیم", "سوگیری", "ذهنیت"], [
+        "two Iranian managers in a thoughtful discussion across a desk in a corporate office, documents and tea between them, city view behind",
+        "an Iranian factory owner standing alone at a window above the production floor, deep in thought, soft evening light"], "magnifier"),
+    (["ارزش پیشنهادی", "ارزش"], [
+        "an Iranian shopkeeper proudly presenting a product to a customer on a wooden counter, careful packaging and shelves behind",
+        "a boutique owner arranging a window display with a customer admiring it from outside, warm street light"], "target"),
+    (["مدیریت", "تیم", "جلسه", "همفکری"], [
+        "a brainstorming meeting of Iranian managers and employees around a table with sticky notes and a whiteboard, lively and collaborative",
+        "a team meeting in a bright Iranian office with a manager listening to a young employee, tea and notebooks on the table"], "stairs"),
+    (["مشتری", "بازار"], [
+        "a busy Iranian neighbourhood shop with a friendly owner serving customers, shelves of goods and warm light",
+        "a lively Iranian bazaar alley with shopkeepers and customers, hanging lamps and arched ceilings"], "stairs"),
 ]
 
 
-def pick_metaphor(title, kw):
+def pick_metaphor(title, kw, rnd=None):
+    rnd = rnd or random.Random(sum(ord(c) for c in title))
     text = title + " " + kw
-    for words, desc, icon in METAPHORS:
+    for words, scenes, icon in SCENES:
         if any(w in text for w in words):
-            return desc, icon
-    return "", "stairs"
+            return rnd.choice(scenes), icon
+    return ("an Iranian small-business owner reviewing plans with a colleague at a wooden desk inside a bright neighbourhood shop, "
+            "shelves of goods and tea glasses around"), "stairs"
 
 
 ART_SYSTEM = ("You are an art director for a Persian business-strategy blog. "
@@ -214,18 +256,17 @@ ART_SYSTEM = ("You are an art director for a Persian business-strategy blog. "
 
 
 def art_brief(title, context, hint=""):
-    use = ("Use this metaphor as the main object: %s. " % hint) if hint else (
-        "Choose ONE clear visual metaphor OBJECT tied to the article's core concept "
-        "(dartboard for goals, chessboard for competition, compass for strategy, funnel for sales funnels, "
-        "magnifying glass over a chart for analysis, scale for decisions, stairs for a roadmap). ")
+    use = ("Base the photo on this scene: %s. " % hint) if hint else (
+        "Choose ONE realistic scene from Iranian business life (bazaar, neighbourhood shop, hypermarket, boutique, factory floor, "
+        "manager's office or a team meeting) that fits the article's topic. ")
     q = ("Article title (Persian): %s\nArticle summary (Persian): %s\n\n"
-         "Write ONE paragraph (45-70 words, English) describing a cover image for this article. %s"
-         "Add 2-4 specific supporting details that tie the object to this exact topic (small shop, customers, coins, calendar, charts). "
-         "Describe the main object, the supporting details, the background, the composition and the lighting. "
+         "Write ONE paragraph (50-80 words, English) describing a cover PHOTOGRAPH for this article, as a documentary photographer would brief it. %s"
+         "Adapt the scene so it clearly connects to this exact topic through 2-3 specific details (what the people are doing, objects on the table or shelves). "
+         "Describe the people (natural Iranian appearance, modest everyday professional clothing, natural expressions), the setting, camera angle, depth of field and warm natural light. "
+         "It must look like a real candid photo, not an illustration and not a staged stock cliché (no handshakes, no thumbs up). "
          "The picture must contain no text, letters, numbers, logos or readable signs. "
-         "If people appear they should look Iranian, but prefer an object-only composition. "
          "Return only the paragraph." % (title, context, use))
-    out = ask(q, 400, ART_SYSTEM)
+    out = ask(q, 450, ART_SYSTEM)
     out = re.sub(r"\s+", " ", out).strip().strip('"')
     return out if len(out) > 40 else ""
 
@@ -252,6 +293,11 @@ def make_image(prompt, model=None):
             continue
         if r.status_code != 200:
             print("Image status [%s] %s %s" % (model, r.status_code, r.text[:300]))
+            if "insufficient_user_quota" in r.text:
+                global QUOTA_LOW
+                QUOTA_LOW = True
+                print(">>> اعتبار گپ‌جی‌پی‌تی برای این مدل کافی نیست؛ حساب را شارژ کنید.")
+                return None
             continue
         img = extract_image(r.json())
         if img and len(img) > 1000:
@@ -302,9 +348,9 @@ def upload_media(data, filename, mime, title):
 
 
 # ---------------- بلوک‌های طراحی‌شده ----------------
-PALETTES = [("#1b2a4a", "#e8590c"), ("#0f3d3e", "#d97706"), ("#2b2d6e", "#c2410c")]
+PALETTES = [("#386641", "#CC6A45"), ("#386641", "#D97757"), ("#2f5233", "#C9643F")]
 NAVY, ORANGE = PALETTES[0]
-SOFT, LINE, MUTED = "#f8fafc", "#e3e8f0", "#475569"
+SOFT, LINE, MUTED = "#f7f9f3", "#dfe6d6", "#4b5563"
 INFO_SYSTEM = ("You extract structured infographic data from Persian business text. "
                "Reply only in the requested format, in fluent Persian, with no English words.")
 
@@ -332,28 +378,35 @@ def render_steps(title, items):
     return info_wrap(title, rows)
 
 
+GRID_STYLE = ('<style>.mm-grid{display:grid;gap:12px}@media(max-width:700px){.mm-g6,.mm-g8{grid-template-columns:repeat(2,1fr)!important}}</style>')
+
+
+def grid_wrap(cards, n):
+    cls = {4: "mm-g4", 6: "mm-g6", 8: "mm-g8"}.get(n, "mm-g4")
+    cols = {4: 2, 6: 3, 8: 4}.get(n, 2)
+    return '<div class="mm-grid %s" style="display:grid;grid-template-columns:repeat(%d,1fr);gap:12px">%s</div>' % (cls, cols, cards)
+
+
 def render_steps_cards(title, items):
     cards = ""
     for i, (t, d) in enumerate(items, 1):
-        cards += fill('<div style="background:#fff;border:1px solid @@line@@;border-top:4px solid @@o@@;border-radius:12px;padding:1em">'
-                      '<div style="width:34px;height:34px;border-radius:50%;background:@@navy@@;color:#fff;text-align:center;'
-                      'line-height:34px;font-weight:700;margin-bottom:.5em">@@n@@</div>'
-                      '<div style="font-weight:700;color:@@navy@@;line-height:1.8">@@t@@</div>'
-                      '<div style="font-size:15px;line-height:1.9;color:@@m@@">@@d@@</div></div>',
+        cards += fill('<div style="background:#fff;border:1px solid @@line@@;border-top:4px solid @@o@@;border-radius:12px;padding:.9em .9em 1em">'
+                      '<div style="width:32px;height:32px;border-radius:50%;background:@@navy@@;color:#fff;text-align:center;'
+                      'line-height:32px;font-weight:700;margin-bottom:.5em">@@n@@</div>'
+                      '<div style="font-weight:700;color:@@navy@@;line-height:1.7">@@t@@</div>'
+                      '<div style="font-size:14.5px;line-height:1.8;color:@@m@@">@@d@@</div></div>',
                       line=LINE, o=ORANGE, navy=NAVY, n=fa(i), t=esc(t), m=MUTED, d=esc(d))
-    grid = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">' + cards + "</div>"
-    return info_wrap(title, grid)
+    return info_wrap(title, grid_wrap(cards, len(items)))
 
 
 def render_cards(title, items):
     cards = ""
     for t, d in items:
-        cards += fill('<div style="background:#fff;border:1px solid @@line@@;border-right:5px solid @@o@@;border-radius:12px;padding:.9em 1em">'
-                      '<div style="font-weight:700;color:@@navy@@;line-height:1.8">@@t@@</div>'
-                      '<div style="font-size:15px;line-height:1.9;color:@@m@@">@@d@@</div></div>',
+        cards += fill('<div style="background:#fff;border:1px solid @@line@@;border-right:5px solid @@o@@;border-radius:12px;padding:.8em .9em">'
+                      '<div style="font-weight:700;color:@@navy@@;line-height:1.7">@@t@@</div>'
+                      '<div style="font-size:14.5px;line-height:1.8;color:@@m@@">@@d@@</div></div>',
                       line=LINE, o=ORANGE, navy=NAVY, t=esc(t), m=MUTED, d=esc(d))
-    grid = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">' + cards + "</div>"
-    return info_wrap(title, grid)
+    return info_wrap(title, grid_wrap(cards, len(items)))
 
 
 def render_checklist(title, items):
@@ -381,7 +434,7 @@ def render_compare(title, items, left, right):
     return info_wrap(title, head + rows)
 
 
-def make_infographic(sec_name, sec_html, kind):
+def make_infographic(sec_name, sec_html, kind, n=0):
     text = plain(sec_html, 1800)
     if kind == "compare":
         fmt = ("TYPE: compare\nTITLE: عنوان کوتاه\nLEFT: عنوان ستون اول (مثلاً «اشتباه رایج»)\n"
@@ -392,13 +445,16 @@ def make_infographic(sec_name, sec_html, kind):
         how = "یک چک‌لیست"
     elif kind == "cards":
         fmt = "TYPE: cards\nTITLE: عنوان کوتاه\nITEM1: عنوان نکته | توضیح کوتاه\nITEM2: ... | ..."
-        how = "چند کارت نکته"
+        how = "%d کارت نکته" % (n or 6)
+    elif kind == "steps_cards":
+        fmt = "TYPE: steps\nTITLE: عنوان کوتاه\nITEM1: عنوان گام | توضیح کوتاه\nITEM2: ... | ..."
+        how = "یک نقشه‌ی گام‌به‌گام با %d گام" % (n or 6)
     else:
         fmt = "TYPE: steps\nTITLE: عنوان کوتاه\nITEM1: عنوان گام | توضیح کوتاه\nITEM2: ... | ..."
         how = "یک نقشه‌ی گام‌به‌گام"
     q = ("متن بخش «%s»:\n%s\n\nاز همین متن %s برای اینفوگرافیک بساز. فقط از مطالب همین متن استفاده کن و چیز تازه نساز. "
-         "۳ تا ۵ آیتم؛ عنوان هر آیتم حداکثر ۴ کلمه و توضیح حداکثر ۱۰ کلمه؛ فارسی روان و بدون کلمه‌ی انگلیسی.\n"
-         "دقیقاً در این قالب و بدون هیچ توضیح دیگر:\n%s" % (sec_name, text, how, fmt))
+         "%s عنوان هر آیتم حداکثر ۴ کلمه و توضیح حداکثر ۹ کلمه؛ فارسی روان و بدون کلمه‌ی انگلیسی.\n"
+         "دقیقاً در این قالب و بدون هیچ توضیح دیگر:\n%s" % (sec_name, text, how, ("دقیقاً %d آیتم بده (اگر لازم است مطلب را به نکته‌های کوچک‌تر بشکن، ولی چیز تازه نساز)." % n) if n else "۳ تا ۵ آیتم.", fmt))
     out = ask(q, 700, INFO_SYSTEM)
     title = grab(out, "TITLE") or sec_name
     items = []
@@ -408,7 +464,13 @@ def make_infographic(sec_name, sec_html, kind):
             items.append((a.strip(), b.strip()))
     if len(items) < 3:
         return ""
-    items = items[:5]
+    if kind in ("cards", "steps_cards"):
+        cnt = 8 if len(items) >= 8 else 6 if len(items) >= 6 else 4 if len(items) >= 4 else 0
+        if cnt == 0:
+            return render_steps(title, items[:5])
+        items = items[:cnt]
+    else:
+        items = items[:5]
     if kind == "compare":
         return render_compare(title, [(a, b) for a, b in items if b], grab(out, "LEFT") or "اشتباه رایج", grab(out, "RIGHT") or "روش درست")
     if kind == "checklist":
@@ -440,7 +502,7 @@ def pick_slots(hd, rnd):
     return [(a, ka), (b, kb)]
 
 
-HERO_C1, HERO_C2, HERO_BAR = "#CC6A45", "#A84F31", "#F6E7D2"
+HERO_C1, HERO_C2, HERO_BAR = "#CC6A45", "#A84F31", "#6A994E"
 
 
 def build_hero(title, subtitle):
@@ -593,28 +655,47 @@ def anchors_for(item):
     return cands
 
 
+def try_place(parts, anchor, t):
+    style = "color:%s;text-decoration:underline;font-weight:600" % ORANGE
+    for idx, part in enumerate(parts):
+        for m in re.finditer(r"<p>(.*?)</p>", part, flags=re.S):
+            inner = m.group(1)
+            if "<a " in inner or anchor not in inner:
+                continue
+            link = '<a href="%s" title="%s" style="%s">%s</a>' % (esc(t["url"]), esc(t["title"]), style, anchor)
+            parts[idx] = part[:m.start(1)] + inner.replace(anchor, link, 1) + part[m.end(1):]
+            print("Internal link: '%s' -> %s" % (anchor, t["url"]))
+            return True
+    return False
+
+
+def llm_anchor(parts, t):
+    text = plain(" ".join(parts), 7000)
+    try:
+        out = ask("متن مقاله:\n%s\n\nمقاله‌ی هدف برای لینک: «%s» (کلمه‌ی کلیدی: %s)\n\n"
+                  "یک عبارت ۲ تا ۵ کلمه‌ای را پیدا کن که **دقیقاً و بدون هیچ تغییری** در متن بالا آمده باشد و برای لینک‌دادن به مقاله‌ی هدف طبیعی و مرتبط باشد. "
+                  "اگر چنین عبارتی نیست، NONE بنویس.\nANCHOR: ..." % (text, t["title"], t.get("focus", "")), 60,
+                  "You find an exact phrase inside a given text. Answer only in the requested format.", 4)
+    except SystemExit:
+        return ""
+    a = grab(out, "ANCHOR").strip(' "«»')
+    return "" if (not a or a.upper().startswith("NONE") or len(a) < 4) else a
+
+
 def add_inline_links(parts, targets, max_links=3):
     count = 0
-    style = "color:%s;text-decoration:underline;font-weight:600" % ORANGE
     for t in targets:
         if count >= max_links:
             break
         placed = False
         for a in anchors_for(t):
-            for idx, part in enumerate(parts):
-                for m in re.finditer(r"<p>(.*?)</p>", part, flags=re.S):
-                    inner = m.group(1)
-                    if "<a " in inner or a not in inner:
-                        continue
-                    link = '<a href="%s" title="%s" style="%s">%s</a>' % (esc(t["url"]), esc(t["title"]), style, a)
-                    parts[idx] = part[:m.start(1)] + inner.replace(a, link, 1) + part[m.end(1):]
-                    placed = True
-                    print("Internal link: '%s' -> %s" % (a, t["url"]))
-                    break
-                if placed:
-                    break
-            if placed:
+            if try_place(parts, a, t):
+                placed = True
                 break
+        if not placed:
+            a = llm_anchor(parts, t)
+            if a and try_place(parts, a, t):
+                placed = True
         if placed:
             count += 1
     return count
@@ -656,13 +737,28 @@ def notify(text):
 
 
 # ---------------- PDF ----------------
+def logo_b64(height=70):
+    try:
+        from PIL import Image
+        im = Image.open("logo.png").convert("RGBA")
+        im = im.resize((int(im.width * height / im.height), height), Image.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, "PNG", optimize=True)
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return ""
+
+
 def pdf_document(title, cover_b64, core, minutes):
     core = core.replace("<details", "<details open")
     cover = ('<img class="cover" src="data:image/webp;base64,%s">' % cover_b64) if cover_b64 else ""
+    _lg = logo_b64(70)
+    _logo_tag = ('<img class="logo" src="data:image/png;base64,%s">' % _lg) if _lg else ""
     css = """
 @page { size: A4; }
 body { font-family: 'Vazirmatn','Noto Sans Arabic','Noto Naskh Arabic','DejaVu Sans',sans-serif; font-size: 12.5pt; line-height: 2.0; color:#1f2937; }
-.brand { color:@@o@@; font-weight:700; font-size:11pt; margin-bottom:6px; }
+.brand { color:@@o@@; font-weight:700; font-size:11pt; margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+.brand img.logo { height:30px; }
 h1 { font-size:24pt; line-height:1.6; color:@@navy@@; margin:0 0 6px; }
 .meta { color:#64748b; font-size:10.5pt; margin-bottom:14px; }
 .cover { width:100%; border-radius:10px; margin:6px 0 16px; }
@@ -675,11 +771,11 @@ a { color:@@o@@; text-decoration:none; }
 .foot { margin-top:26px; padding-top:8px; border-top:1px solid #e3e8f0; color:#64748b; font-size:10pt; text-align:center; }
 """.replace("@@o@@", ORANGE).replace("@@navy@@", NAVY)
     return ('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><style>%s</style></head><body>'
-            '<div class="brand"><a href="%s">%s</a></div><h1>%s</h1>'
+            '<div class="brand">%s<a href="%s">%s</a></div><h1>%s</h1>'
             '<div class="meta">زمان مطالعه: %s دقیقه</div>%s%s'
             '<div class="foot"><div>برای مطالعه‌ی مقاله‌های بیشتر به <a href="%s">%s</a> سر بزنید.</div>'
             '<div style="margin-top:4px">%s — <a href="%s">mohammadmohajer.ir</a></div></div></body></html>'
-            % (css, esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(title), fa(minutes), cover, core,
+            % (css, _logo_tag, esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(title), fa(minutes), cover, core,
                esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(AUTHOR_LINE), esc(WP)))
 
 
@@ -714,7 +810,7 @@ ICONS = {
     "magnifier": '<circle cx="170" cy="170" r="115" fill="#fff" opacity=".1" stroke="#fff" stroke-width="22"/><line x1="255" y1="255" x2="350" y2="350" stroke="@@o@@" stroke-width="32" stroke-linecap="round"/>'
                  '<rect x="105" y="170" width="30" height="55" fill="@@o@@"/><rect x="155" y="135" width="30" height="90" fill="#fff"/><rect x="205" y="105" width="30" height="120" fill="@@o@@"/>',
     "compass": '<circle cx="200" cy="200" r="160" fill="none" stroke="#fff" stroke-width="14" opacity=".85"/><polygon points="200,60 235,200 165,200" fill="@@o@@"/>'
-               '<polygon points="200,340 235,200 165,200" fill="#fff" opacity=".9"/><circle cx="200" cy="200" r="14" fill="#0b1226"/>',
+               '<polygon points="200,340 235,200 165,200" fill="#fff" opacity=".9"/><circle cx="200" cy="200" r="14" fill="#1f3a24"/>',
     "rook": '<rect x="85" y="305" width="230" height="40" rx="6" fill="#fff" opacity=".9"/><rect x="120" y="140" width="160" height="165" fill="#fff" opacity=".9"/>'
             '<rect x="100" y="105" width="200" height="38" fill="#fff"/><rect x="100" y="62" width="44" height="48" fill="#fff"/><rect x="178" y="62" width="44" height="48" fill="#fff"/>'
             '<rect x="256" y="62" width="44" height="48" fill="#fff"/><rect x="150" y="215" width="100" height="14" fill="@@o@@"/>',
@@ -728,7 +824,7 @@ def branded_cover(title, icon="stairs"):
         svg = fill('<svg viewBox="0 0 400 400" width="380" height="380" xmlns="http://www.w3.org/2000/svg">%s</svg>' % ICONS.get(icon, ICONS["stairs"]), o=ORANGE)
         page = fill(
             '<html lang="fa" dir="rtl"><body style="margin:0"><div style="width:1200px;height:800px;box-sizing:border-box;padding:80px 90px;'
-            'background:linear-gradient(135deg,@@navy@@ 0%,#0b1226 100%);color:#fff;'
+            'background:linear-gradient(135deg,@@navy@@ 0%,#1f3a24 100%);color:#fff;'
             "font-family:'Vazirmatn','Noto Sans Arabic','Noto Naskh Arabic','DejaVu Sans',sans-serif;"
             'display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden">'
             '<div style="position:absolute;left:-150px;bottom:-150px;width:520px;height:520px;border-radius:50%;background:@@o@@;opacity:.18"></div>'
@@ -751,10 +847,10 @@ def branded_cover(title, icon="stairs"):
         return None
 
 
-def make_cover(title, ctx, alt, slug, kw=""):
+def make_cover(title, ctx, alt, slug, kw="", rnd=None):
     """تصویر شاخص: هوش مصنوعی (چند مدل پشت‌سرهم)، وگرنه کاور برندی. خروجی: (شناسه رسانه، base64، منبع)"""
     data, source = None, "none"
-    hint, icon = pick_metaphor(title, kw)
+    hint, icon = pick_metaphor(title, kw, rnd)
     print("Metaphor hint:", hint or "(none)", "| icon:", icon)
     if IMG_MODEL and GAP:
         idea = ""
@@ -947,10 +1043,10 @@ A4: ...""" % (title, kw), 1800)
             print("Tag '%s' failed (%s); skipping." % (tg, type(e).__name__))
 
     # تصویر شاخص
-    featured_id, cover_b64 = None, ""
+    featured_id, cover_b64, cover_src = None, "", "none"
     try:
         ctx = title + ". Sections: " + " | ".join(n for n, _ in heads) + ". " + plain(parts[0])
-        featured_id, cover_b64, cover_src = make_cover(title, ctx, alt1, slug, kw)
+        featured_id, cover_b64, cover_src = make_cover(title, ctx, alt1, slug, kw, rnd)
     except Exception as e:
         print("Cover step failed (%s); continuing without cover." % type(e).__name__)
 
@@ -958,7 +1054,8 @@ A4: ...""" % (title, kw), 1800)
     for slot, kind in pick_slots(heads, rnd):
         try:
             if slot < len(parts):
-                block = make_infographic(heads[slot][0], parts[slot], kind)
+                n_items = rnd.choice([6, 8]) if kind in ("cards", "steps_cards") else 0
+                block = make_infographic(heads[slot][0], parts[slot], kind, n_items)
                 if block:
                     parts[slot] += block
                     print("Infographic added after section %d (%s)" % (slot + 1, kind))
@@ -995,7 +1092,7 @@ A4: ...""" % (title, kw), 1800)
     hero = build_hero(title, subtitle)
     top_btn = ('<div style="margin:0 0 1.6em;text-align:right">%s</div>' % btn) if btn else ""
     end_btn = ('<div style="margin:1.6em 0;text-align:center">%s</div>' % btn) if btn else ""
-    full = '<div class="mm-article">' + hero + build_toc(toc_items) + top_btn + core + end_btn + build_cta() + "</div>"
+    full = '<div class="mm-article">' + GRID_STYLE + hero + build_toc(toc_items) + top_btn + core + end_btn + build_cta() + "</div>"
 
     focus = ", ".join([kw] + [x.strip() for x in kw2.split("،") if x.strip()][:2])
     payload = {"title": title, "slug": slug, "content": full, "excerpt": excerpt,
@@ -1046,5 +1143,15 @@ A4: ...""" % (title, kw), 1800)
         w.writeheader()
         w.writerows(rows)
 
-    notify("پیش‌نویس جدید در سایت منتشر شد و آماده‌ی بازبینی است.\n\nعنوان: %s\nزمان مطالعه: %s دقیقه\n\nویرایش:\n%s/wp-admin/post.php?post=%s&action=edit\n\nپیش‌نمایش:\n%s/?p=%s&preview=true"
+    warns = []
+    if QUOTA_LOW:
+        warns.append("اعتبار گپ‌جی‌پی‌تی برای تولید تصویر رو به اتمام است؛ لطفاً شارژ کنید.")
+    if cover_src.startswith("branded") or cover_src == "none":
+        warns.append("تصویر شاخص ساده‌ی برندی ساخته شد.")
+    elif IMG_MODEL and not cover_src.endswith(IMG_MODEL):
+        warns.append("تصویر شاخص با مدل جایگزین ساخته شد (%s)." % cover_src.replace("ai:", ""))
+    msg = ("پیش‌نویس جدید در سایت منتشر شد و آماده‌ی بازبینی است.\n\nعنوان: %s\nزمان مطالعه: %s دقیقه\n\nویرایش:\n%s/wp-admin/post.php?post=%s&action=edit\n\nپیش‌نمایش:\n%s/?p=%s&preview=true"
            % (title, fa(minutes), WP, pid, WP, pid))
+    if warns:
+        msg += "\n\n⚠️ " + "\n⚠️ ".join(warns)
+    notify(msg)
