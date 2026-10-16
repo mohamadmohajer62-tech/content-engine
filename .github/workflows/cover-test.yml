@@ -8,10 +8,10 @@ on:
       keyword:
         description: "Main keyword (optional)"
         required: false
-      count:
-        description: "How many variants (1 or 2)"
+      variants:
+        description: "model:quality list, comma separated"
         required: false
-        default: "2"
+        default: "gpt-image-2:low,gpt-image-2:medium,gpt-image-1-mini:medium,gapgpt/qwen-image-2.1"
 
 jobs:
   t:
@@ -28,11 +28,10 @@ jobs:
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
           GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
           LLM_MODEL: gpt-4o-mini
-          IMAGE_MODEL: "gpt-image-2"
           IMAGE_SIZE: "1536x1024"
           TITLE: ${{ github.event.inputs.title }}
           KEYWORD: ${{ github.event.inputs.keyword }}
-          COUNT: ${{ github.event.inputs.count }}
+          VARIANTS: ${{ github.event.inputs.variants }}
         run: python cover_test.py
       - uses: actions/upload-artifact@v4
         if: always()
