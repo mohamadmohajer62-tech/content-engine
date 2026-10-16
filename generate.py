@@ -28,9 +28,11 @@ S.headers.update({"User-Agent": "Mozilla/5.0 (compatible; ContentEngine/1.0; +ht
 S.mount("https://", HTTPAdapter(max_retries=Retry(total=5, connect=5, read=4, backoff_factor=5,
                                                    status_forcelist=[502, 503, 504])))
 
-IMG_STYLE = ("Authentic documentary-style editorial photograph of everyday Iranian business life, realistic and candid, "
-             "natural warm ambient light, rich earthy colors, shallow depth of field, people with natural Iranian appearance and modest professional clothing, "
-             "real textures, wide 3:2 composition, high detail. No text, no letters, no numbers, no logos, no watermarks.")
+IMG_STYLE = ("Cinematic editorial photograph of everyday Iranian business life, polished modern look, warm golden natural light, "
+             "shallow depth of field, rich harmonious palette of deep navy blue and warm orange with natural earthy tones, "
+             "authentic Iranian city setting visible through a window or in the background, people with natural Iranian appearance "
+             "and modest professional clothing, realistic faces and hands, wide 3:2 composition, high detail. "
+             "No text, no letters, no numbers, no logos, no watermarks.")
 QUOTA_LOW = False
 try:
     _st = open("image-style.txt", encoding="utf-8").read().strip()
@@ -95,6 +97,26 @@ def wp(method, url, tries=5, **kw):
 
 
 # ---------------- مدل متن ----------------
+class QuotaError(Exception):
+    pass
+
+
+def fail_run(msg):
+    print("FAILED:", msg)
+    try:
+        notify("⛔ اجرای مقاله متوقف شد.\n" + msg)
+    except Exception:
+        pass
+    sys.exit(msg)
+
+
+def latin_ratio(t):
+    s = plain(t, 10 ** 7)
+    lat = len(re.findall(r"[A-Za-z]", s))
+    per = len(re.findall(r"[\u0600-\u06FF]", s))
+    return lat / float(lat + per + 1)
+
+
 def chat(url, key, model, user, max_tokens, system=None):
     body = {"model": model, "max_tokens": max_tokens,
             "messages": [{"role": "system", "content": system or SYSTEM},
@@ -107,6 +129,8 @@ def chat(url, key, model, user, max_tokens, system=None):
             continue
         if r.status_code != 200:
             print("[%s] status %s %s" % (model, r.status_code, r.text[:150]))
+            if "insufficient_user_quota" in r.text:
+                raise QuotaError(r.text[:200])
             return ""
         return r.json()["choices"][0]["message"].get("content") or ""
     return ""
@@ -133,11 +157,18 @@ def free_models():
 
 def ask(user, max_tokens, system=None, min_len=50):
     if GAP:
-        t = chat(GAP_BASE + "/chat/completions", GAP, MODEL, user, max_tokens, system)
-        if len(t) > min_len:
-            print("[GapGPT]", MODEL, "OK")
-            return t
-        print("GapGPT failed, trying OpenRouter free models.")
+        # با کلید گپ‌جی‌پی‌تی هرگز به مدل‌های رایگان نمی‌رویم (کند و بی‌کیفیت‌اند)
+        for attempt in range(3):
+            try:
+                t = chat(GAP_BASE + "/chat/completions", GAP, MODEL, user, max_tokens, system)
+            except QuotaError:
+                fail_run("اعتبار API گپ‌جی‌پی‌تی تمام شده است؛ لطفاً حساب را شارژ کنید. مقاله‌ای ساخته نشد.")
+            if len(t) > min_len:
+                print("[GapGPT]", MODEL, "OK")
+                return t
+            print("GapGPT empty/failed answer, retry %d/3" % (attempt + 1))
+            time.sleep(10)
+        sys.exit("گپ‌جی‌پی‌تی پاسخ نداد.")
     if not OR_KEY:
         sys.exit("هیچ کلیدی برای مدل پیدا نشد.")
     for m in free_models()[:6]:
@@ -262,6 +293,7 @@ def art_brief(title, context, hint=""):
     q = ("Article title (Persian): %s\nArticle summary (Persian): %s\n\n"
          "Write ONE paragraph (50-80 words, English) describing a cover PHOTOGRAPH for this article, as a documentary photographer would brief it. %s"
          "Adapt the scene so it clearly connects to this exact topic through 2-3 specific details (what the people are doing, objects on the table or shelves). "
+         "Prefer a medium shot with one or two people at work (notebook, laptop showing charts, tea glass) and a window or background that shows an Iranian street, bazaar or shop front, unless the base scene already defines another Iranian setting. "
          "Describe the people (natural Iranian appearance, modest everyday professional clothing, natural expressions), the setting, camera angle, depth of field and warm natural light. "
          "It must look like a real candid photo, not an illustration and not a staged stock cliché (no handshakes, no thumbs up). "
          "The picture must contain no text, letters, numbers, logos or readable signs. "
@@ -456,6 +488,8 @@ def make_infographic(sec_name, sec_html, kind, n=0):
          "%s عنوان هر آیتم حداکثر ۴ کلمه و توضیح حداکثر ۹ کلمه؛ فارسی روان و بدون کلمه‌ی انگلیسی.\n"
          "دقیقاً در این قالب و بدون هیچ توضیح دیگر:\n%s" % (sec_name, text, how, ("دقیقاً %d آیتم بده (اگر لازم است مطلب را به نکته‌های کوچک‌تر بشکن، ولی چیز تازه نساز)." % n) if n else "۳ تا ۵ آیتم.", fmt))
     out = ask(q, 700, INFO_SYSTEM)
+    if latin_ratio(out) > 0.3:
+        return ""
     title = grab(out, "TITLE") or sec_name
     items = []
     for line in re.findall(r"^ITEM\d+\s*[:：]\s*(.+)$", out, re.M):
@@ -899,6 +933,14 @@ if __name__ == "__main__":
     print("WordPress:", r.status_code)
     if r.status_code != 200:
         sys.exit("اتصال وردپرس درست نیست.")
+    if GAP:
+        try:
+            chat(GAP_BASE + "/chat/completions", GAP, MODEL, "OK?", 5, "Reply with OK.")
+            print("GapGPT preflight: OK")
+        except QuotaError:
+            fail_run("اعتبار API گپ‌جی‌پی‌تی تمام شده است؛ لطفاً حساب را شارژ کنید. مقاله‌ای ساخته نشد.")
+        except Exception as e:
+            print("GapGPT preflight skipped (%s)." % type(e).__name__)
 
     with open("calendar.csv", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
@@ -965,14 +1007,23 @@ H7: جمع‌بندی | هدف بخش در یک جمله""" % (row["topic"], kw,
                      "در یک بلوک <blockquote><p>...</p></blockquote> بیاور.")
         else:
             extra = "اگر بخش بلند شد، یک یا دو زیرعنوان h3 بگذار."
-        body = clean(ask("""مقاله: «%s» | کلمه‌ی کلیدی: %s
+        prompt_sec = ("""مقاله: «%s» | کلمه‌ی کلیدی: %s
 فهرست بخش‌ها: %s
 
 حالا فقط بخش «%s» را بنویس. هدف این بخش: %s. %s
 حدود ۲۸۰ تا ۳۵۰ کلمه بنویس (کوتاه‌تر نباشد)، با توضیح کافی، مثال یا جزئیات.
 متن را پررنگ (bold) نکن.
 فقط HTML ساده (p, ul, li, h3, blockquote). تیتر h2 نگذار و مطالب بخش‌های دیگر را تکرار نکن.
-پایان متن قبلی (تکرارش نکن): %s""" % (title, kw, names, name, goal, extra, prev), 1800))
+پایان متن قبلی (تکرارش نکن): %s""" % (title, kw, names, name, goal, extra, prev))
+        body = ""
+        for attempt in range(3):
+            cand = clean(ask(prompt_sec, 1800))
+            if latin_ratio(cand) <= 0.2 and len(plain(cand, 10 ** 6)) > 400:
+                body = cand
+                break
+            print("Section %d looks wrong (language/length), retry %d/3" % (i + 1, attempt + 1))
+        if not body:
+            fail_run("بخش «%s» به فارسی درست تولید نشد؛ اجرا متوقف شد تا مقاله‌ی خراب منتشر نشود." % name)
         head_html = "" if i == 0 else '<h2 id="mm-s%d" style="scroll-margin-top:90px">%s</h2>\n' % (i, esc(name))
         parts.append(head_html + body + "\n")
     words = len(plain(" ".join(parts), 10 ** 7).split())
@@ -1030,6 +1081,17 @@ A4: ...""" % (title, kw), 1800)
         cat_ids = [c["id"] for c in cr.json() if c.get("name", "").strip() == row["category"].strip()]
     except Exception as e:
         print("Category lookup failed (%s); continuing without category." % type(e).__name__)
+    mag_parts = [x for x in MAGAZINE_URL.rstrip("/").split("/") if x]
+    if "/category/" in MAGAZINE_URL and mag_parts:
+        try:
+            mr = wp("GET", WP + "/wp-json/wp/v2/categories", tries=3, auth=AUTH, timeout=60,
+                    params={"slug": mag_parts[-1], "_fields": "id,name"})
+            for c in mr.json():
+                if c.get("id") not in cat_ids:
+                    cat_ids.append(c["id"])
+                    print("Magazine category added:", c.get("name"), c["id"])
+        except Exception as e:
+            print("Magazine category lookup failed (%s)." % type(e).__name__)
     print("Category ids:", cat_ids)
     tag_ids = []
     for tg in tags[:5]:
