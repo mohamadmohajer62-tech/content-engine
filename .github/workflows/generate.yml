@@ -32,6 +32,7 @@ jobs:
           LLM_MODEL: gpt-4o-mini
           IMAGE_MODEL: "gpt-image-2"
           IMAGE_SIZE: "1536x1024"
+                    IMAGE_QUALITY: "medium"
         run: python generate.py
       - name: Save calendar
         run: |
