@@ -1,0 +1,42 @@
+name: cover-test
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "Article title (Persian)"
+        required: true
+      keyword:
+        description: "Main keyword (optional)"
+        required: false
+      count:
+        description: "How many variants (1 or 2)"
+        required: false
+        default: "2"
+
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow
+      - name: Make cover samples
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
+          LLM_MODEL: gpt-4o-mini
+          IMAGE_MODEL: "gpt-image-2"
+          IMAGE_SIZE: "1536x1024"
+          TITLE: ${{ github.event.inputs.title }}
+          KEYWORD: ${{ github.event.inputs.keyword }}
+          COUNT: ${{ github.event.inputs.count }}
+        run: python cover_test.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cover-samples
+          path: cover_test_*
+          if-no-files-found: ignore
