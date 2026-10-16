@@ -13,6 +13,7 @@ OR_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 IMG_MODEL = os.environ.get("IMAGE_MODEL", "").strip()
 IMG_SIZE = os.environ.get("IMAGE_SIZE", "1536x1024").strip() or "1536x1024"
+IMG_QUALITY = os.environ.get("IMAGE_QUALITY", "medium").strip()
 GAP_BASE = "https://api.gapgpt.app/v1"
 MAKE_PDF = os.environ.get("MAKE_PDF", "1").strip() != "0"
 MAGAZINE_NAME = "مجله رشد کسب‌وکار"
@@ -303,20 +304,28 @@ def art_brief(title, context, hint=""):
     return out if len(out) > 40 else ""
 
 
-def make_image(prompt, model=None):
+def make_image(prompt, model=None, quality=None):
+    """تولید تصویر. برای مدل‌های gpt-image کیفیت (low/medium/high) تعیین می‌شود تا هزینه کنترل شود."""
+    global QUOTA_LOW
     model = model or IMG_MODEL
     if not (GAP and model):
         return None
+    q = IMG_QUALITY if quality is None else quality
+    use_q = bool(q) and "gpt-image" in model
     full = IMG_STYLE + " " + prompt
     heads = {"Authorization": "Bearer " + GAP}
     attempts = []
-    for size in (IMG_SIZE, None):
-        body = {"model": model, "prompt": full, "n": 1}
-        if size:
-            body["size"] = size
-        attempts.append((GAP_BASE + "/images/generations", body))
-    attempts.append((GAP_BASE + "/chat/completions",
-                     {"model": model, "messages": [{"role": "user", "content": "Generate an image: " + full}]}))
+    if use_q:
+        # عمداً بدون کیفیت پیش‌فرض (گران) تلاش دوباره نمی‌کنیم
+        attempts.append((GAP_BASE + "/images/generations", {"model": model, "prompt": full, "n": 1, "size": IMG_SIZE, "quality": q}))
+    else:
+        for size in (IMG_SIZE, None):
+            body = {"model": model, "prompt": full, "n": 1}
+            if size:
+                body["size"] = size
+            attempts.append((GAP_BASE + "/images/generations", body))
+        attempts.append((GAP_BASE + "/chat/completions",
+                         {"model": model, "messages": [{"role": "user", "content": "Generate an image: " + full}]}))
     for url, body in attempts:
         try:
             r = requests.post(url, headers=heads, json=body, timeout=300)
@@ -326,13 +335,17 @@ def make_image(prompt, model=None):
         if r.status_code != 200:
             print("Image status [%s] %s %s" % (model, r.status_code, r.text[:300]))
             if "insufficient_user_quota" in r.text:
-                global QUOTA_LOW
                 QUOTA_LOW = True
                 print(">>> اعتبار گپ‌جی‌پی‌تی برای این مدل کافی نیست؛ حساب را شارژ کنید.")
                 return None
+            if use_q and r.status_code in (400, 422):
+                print(">>> ممکن است پارامتر quality در این مدل پشتیبانی نشود؛ برای جلوگیری از هزینه‌ی زیاد، بدون آن تلاش نمی‌کنیم.")
             continue
-        img = extract_image(r.json())
+        j = r.json()
+        img = extract_image(j)
         if img and len(img) > 1000:
+            u = j.get("usage") if isinstance(j, dict) else None
+            print("Image OK [%s | quality=%s] usage=%s" % (model, q if use_q else "-", u))
             return img
         print("Image response had no image [%s] %s" % (model, url.split("/v1")[1]))
     return None
