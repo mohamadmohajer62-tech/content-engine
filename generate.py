@@ -13,7 +13,7 @@ OR_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
 MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 IMG_MODEL = os.environ.get("IMAGE_MODEL", "").strip()
 IMG_SIZE = os.environ.get("IMAGE_SIZE", "1536x1024").strip() or "1536x1024"
-IMG_QUALITY = os.environ.get("IMAGE_QUALITY", "medium").strip()
+IMG_QUALITY = os.environ.get("IMAGE_QUALITY", "low").strip()
 GAP_BASE = "https://api.gapgpt.app/v1"
 MAKE_PDF = os.environ.get("MAKE_PDF", "1").strip() != "0"
 MAGAZINE_NAME = "مجله رشد کسب‌وکار"
@@ -938,7 +938,16 @@ def make_cover(title, ctx, alt, slug, kw="", rnd=None):
 
 
 # ================= شروع =================
+def _excepthook(t, v, tb):
+    try:
+        notify("⛔ خطای پیش‌بینی‌نشده در اجرای مقاله: %s: %s" % (t.__name__, str(v)[:200]))
+    except Exception:
+        pass
+    sys.__excepthook__(t, v, tb)
+
+
 if __name__ == "__main__":
+    sys.excepthook = _excepthook
     try:
         r = wp("GET", WP + "/wp-json/wp/v2/users/me", tries=5, auth=AUTH, timeout=45)
     except Exception as e:
@@ -961,7 +970,9 @@ if __name__ == "__main__":
         rows = list(reader)
     row = next((x for x in rows if x["status"].strip().lower() == "ready"), None)
     if not row:
-        sys.exit("ردیفی با وضعیت ready نیست.")
+        print("No ready row in calendar.csv.")
+        notify("📅 تقویم محتوا خالی شد؛ ردیف‌های تازه با وضعیت ready اضافه کنید تا مقاله‌ی بعدی ساخته شود.")
+        sys.exit(0)
     kw = row["primary_keyword"]
     kw2 = row["secondary_keywords"].replace("|", "، ")
     SEED = int(re.sub(r"\D", "", row["id"]) or "0")
