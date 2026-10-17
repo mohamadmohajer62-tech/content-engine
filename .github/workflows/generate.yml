@@ -1,8 +1,16 @@
 name: generate-article
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  schedule:
+    # 03:30 UTC = 07:00 به وقت تهران (UTC+3:30)
+    - cron: "30 3 * * *"
 
 permissions:
   contents: write
+
+concurrency:
+  group: generate-article
+  cancel-in-progress: false
 
 jobs:
   run:
