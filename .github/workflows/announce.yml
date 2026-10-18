@@ -1,6 +1,10 @@
 name: announce
 on:
   workflow_dispatch:
+    inputs:
+      force_ids:
+        description: "Post IDs to re-send (comma separated, optional)"
+        required: false
   schedule:
     # هر ساعت، دقیقه‌ی ۱۵
     - cron: "15 * * * *"
@@ -33,6 +37,7 @@ jobs:
           BALE_CHANNEL_ID: ${{ secrets.BALE_CHANNEL_ID }}
           EITAA_TOKEN: ${{ secrets.EITAA_TOKEN }}
           EITAA_CHANNEL_ID: ${{ secrets.EITAA_CHANNEL_ID }}
+          FORCE_IDS: ${{ github.event.inputs.force_ids }}
         run: python announce.py
       - name: Save state
         run: |
