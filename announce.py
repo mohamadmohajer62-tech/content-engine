@@ -102,11 +102,27 @@ def build_captions(p, names):
     return plain_cap.strip()[:1000], html_cap.strip()[:1000]
 
 
+def hint(err):
+    e = (err or "").lower()
+    if "chat not found" in e:
+        return "شناسه‌ی کانال اشتباه است یا ربات در کانال نیست (کانال عمومی: @نام_کاربری، کانال خصوصی: شناسه‌ی عددی)."
+    if "not enough rights" in e or "have no rights" in e or "can't post" in e or "need administrator" in e:
+        return "ربات مدیر کانال است ولی اجازه‌ی «ارسال پیام» ندارد."
+    if "not a member" in e or "forbidden" in e or "kicked" in e:
+        return "ربات باید مدیر (Administrator) همان کانال باشد."
+    if "unauthorized" in e or "invalid token" in e or "401" in e:
+        return "توکن ربات اشتباه است."
+    if "parse entities" in e:
+        return "قالب‌بندی کپشن مشکل دارد."
+    return ""
+
+
 def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link):
-    """تلگرام و بله (API سازگار): عکس + کپشن + دکمه‌ی لینک."""
+    """تلگرام و بله (API سازگار): عکس + کپشن + دکمه‌ی لینک. خروجی: (موفق؟، متن خطا)"""
     markup = json.dumps({"inline_keyboard": [[{"text": "مطالعه‌ی مقاله", "url": link}]]})
     use_html = (name == "Telegram")
     cap = html_cap if use_html else plain_cap
+    last_err = ""
     for with_markup in (True, False):
         d = {"chat_id": chat}
         if with_markup:
@@ -124,32 +140,42 @@ def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link):
         try:
             r = requests.post((base % token) + method, data=d, files=files, timeout=90)
         except Exception as e:
-            print("%s error: %s" % (name, type(e).__name__))
+            last_err = type(e).__name__
+            print("%s error: %s" % (name, last_err))
             continue
-        print("%s %s (markup=%s): %s %s" % (name, method, with_markup, r.status_code, "" if r.status_code == 200 else r.text[:160]))
+        print("%s %s (markup=%s): %s %s" % (name, method, with_markup, r.status_code, "" if r.status_code == 200 else r.text[:200]))
         if r.status_code == 200:
-            return True
-    return False
+            return True, ""
+        last_err = r.text[:200]
+    return False, last_err
+
+
+def eitaa_call(token, method, data, files=None):
+    """ایتایار: موفقیت یعنی ok=true در JSON (نه فقط کد ۲۰۰)."""
+    try:
+        r = requests.post("https://eitaayar.ir/api/%s/%s" % (token, method), data=data, files=files, timeout=120)
+        try:
+            j = r.json()
+        except Exception:
+            j = {}
+        ok = bool(j.get("ok")) if isinstance(j, dict) else False
+        print("Eitaa %s: HTTP %s ok=%s %s" % (method, r.status_code, ok, "" if ok else r.text[:200]))
+        return ok, ("" if ok else r.text[:200])
+    except Exception as e:
+        print("Eitaa %s error: %s" % (method, type(e).__name__))
+        return False, type(e).__name__
 
 
 def send_eitaa(token, chat, jpg, plain_cap, title):
-    base = "https://eitaayar.ir/api/%s/" % token
+    err = ""
     if jpg:
-        try:
-            r = requests.post(base + "sendFile", data={"chat_id": chat, "caption": plain_cap, "title": title[:60]},
-                              files={"file": ("cover.jpg", jpg, "image/jpeg")}, timeout=120)
-            print("Eitaa sendFile:", r.status_code, "" if r.status_code == 200 else r.text[:160])
-            if r.status_code == 200:
-                return True
-        except Exception as e:
-            print("Eitaa sendFile error:", type(e).__name__)
-    try:
-        r = requests.post(base + "sendMessage", data={"chat_id": chat, "text": plain_cap, "title": title[:60]}, timeout=60)
-        print("Eitaa sendMessage:", r.status_code, "" if r.status_code == 200 else r.text[:160])
-        return r.status_code == 200
-    except Exception as e:
-        print("Eitaa sendMessage error:", type(e).__name__)
-        return False
+        for method in ("sendFile", "sendDocument"):
+            ok, err = eitaa_call(token, method, {"chat_id": chat, "caption": plain_cap, "title": title[:60]},
+                                 {"file": ("cover.jpg", jpg, "image/jpeg")})
+            if ok:
+                return True, ""
+    ok, err2 = eitaa_call(token, "sendMessage", {"chat_id": chat, "text": plain_cap, "title": title[:60]})
+    return ok, ("" if ok else (err2 or err))
 
 
 def main():
@@ -164,27 +190,34 @@ def main():
         print("Initialized with %d existing posts; nothing sent." % len(posts))
         g.notify("📣 اعلان خودکار کانال‌ها فعال شد. %d مقاله‌ی موجود علامت خورد و از این به بعد هر مقاله‌ی تازه‌منتشرشده ارسال می‌شود." % len(posts))
         return
-    new = [p for p in posts if p["id"] not in st["ids"]]
+    force = {int(x) for x in re.findall(r"\d+", os.environ.get("FORCE_IDS", ""))}
+    new = [p for p in posts if p["id"] not in st["ids"] or p["id"] in force]
+    for p in new:
+        if p["id"] in force:
+            st["attempts"][str(p["id"])] = 0
+            if p["id"] in st["ids"]:
+                st["ids"].remove(p["id"])
     new.sort(key=lambda p: p["date"])
     print("New published posts:", [p["id"] for p in new])
     for p in new[:MAX_PER_RUN]:
         names = tag_names(p["tags"])
         jpg = cover_bytes(p["media"])
         plain_cap, html_cap = build_captions(p, names)
-        res = {}
+        res, errs = {}, {}
         if TG_TOKEN and TG_CH:
-            res["Telegram"] = send_bot_api("Telegram", "https://api.telegram.org/bot%s/", TG_TOKEN, TG_CH, jpg, plain_cap, html_cap, p["link"])
+            res["Telegram"], errs["Telegram"] = send_bot_api("Telegram", "https://api.telegram.org/bot%s/", TG_TOKEN, TG_CH, jpg, plain_cap, html_cap, p["link"])
         if BALE_TOKEN and BALE_CH:
-            res["Bale"] = send_bot_api("Bale", "https://tapi.bale.ai/bot%s/", BALE_TOKEN, BALE_CH, jpg, plain_cap, html_cap, p["link"])
+            res["Bale"], errs["Bale"] = send_bot_api("Bale", "https://tapi.bale.ai/bot%s/", BALE_TOKEN, BALE_CH, jpg, plain_cap, html_cap, p["link"])
         if EITAA_TOKEN and EITAA_CH:
-            res["Eitaa"] = send_eitaa(EITAA_TOKEN, EITAA_CH, jpg, plain_cap, p["title"])
+            res["Eitaa"], errs["Eitaa"] = send_eitaa(EITAA_TOKEN, EITAA_CH, jpg, plain_cap, p["title"])
         key = str(p["id"])
         st["attempts"][key] = st["attempts"].get(key, 0) + 1
         if any(res.values()) or st["attempts"][key] >= 3:
             st["ids"].append(p["id"])
         line = " | ".join("%s %s" % (k, "✅" if v else "❌") for k, v in res.items())
+        details = "\n".join("• %s: %s" % (k, (hint(errs[k]) or errs[k][:120])) for k, v in res.items() if not v)
         print("Announced post %s: %s" % (p["id"], line))
-        g.notify("📣 اعلان مقاله در کانال‌ها:\n%s\n\n%s" % (p["title"], line))
+        g.notify("📣 اعلان مقاله در کانال‌ها:\n%s\n\n%s%s" % (p["title"], line, ("\n\n" + details) if details else ""))
         save_state(st)
     save_state(st)
 
