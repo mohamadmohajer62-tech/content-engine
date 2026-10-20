@@ -1207,6 +1207,15 @@ A4: ...""" % (title, kw), 1800)
         sys.exit(post.text[:300])
     pid = post.json()["id"]
     print("Draft ID:", pid, "| edit:", "%s/wp-admin/post.php?post=%s&action=edit" % (WP, pid))
+    if cover_b64:
+        try:
+            from PIL import Image
+            os.makedirs("covers", exist_ok=True)
+            im = Image.open(io.BytesIO(base64.b64decode(cover_b64))).convert("RGB")
+            im.save(os.path.join("covers", "%s.jpg" % pid), "JPEG", quality=88)
+            print("Cover copy saved: covers/%s.jpg" % pid)
+        except Exception as e:
+            print("Cover copy failed (%s)." % type(e).__name__)
     try:
         chk = wp("GET", "%s/wp-json/wp/v2/posts/%s" % (WP, pid), tries=2, params={"context": "edit"}, auth=AUTH, timeout=60).json()
         m = chk.get("meta") or {}

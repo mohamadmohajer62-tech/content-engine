@@ -11,6 +11,8 @@ EITAA_TOKEN = os.environ.get("EITAA_TOKEN", "").strip()
 EITAA_CH = os.environ.get("EITAA_CHANNEL_ID", "").strip()
 MAX_PER_RUN = 3
 BRAND = "مجله رشد کسب‌وکار"
+HANDLE = os.environ.get("CHANNEL_HANDLE", "@fcmo_mohajer").strip() or "@fcmo_mohajer"
+SIG_NAME = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
 
 
 def load_state():
@@ -45,23 +47,41 @@ def fetch_recent():
     return out
 
 
-def cover_bytes(media_id):
+def to_jpeg(raw):
+    from PIL import Image
+    im = Image.open(io.BytesIO(raw)).convert("RGB")
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=88)
+    return buf.getvalue()
+
+
+def cover_bytes(post_id, media_id):
+    """خروجی: (بایت‌های JPEG یا None، آدرس تصویر برای ارسال مستقیم یا '')"""
+    local = os.path.join("covers", "%s.jpg" % post_id)
+    if os.path.exists(local):
+        print("Cover from repo:", local)
+        return open(local, "rb").read(), ""
     if not media_id:
-        return None
+        print("Cover: post has no featured image (featured_media=0).")
+        return None, ""
+    url = ""
     try:
         r = g.wp("GET", "%s/wp-json/wp/v2/media/%s" % (g.WP, media_id), tries=3, auth=g.AUTH, params={"_fields": "source_url"})
-        url = r.json().get("source_url")
-        if not url:
-            return None
-        img = requests.get(url, timeout=60, headers={"User-Agent": "Mozilla/5.0"}).content
-        from PIL import Image
-        im = Image.open(io.BytesIO(img)).convert("RGB")
-        buf = io.BytesIO()
-        im.save(buf, "JPEG", quality=88)
-        return buf.getvalue()
+        print("Cover media lookup: HTTP", r.status_code)
+        url = (r.json() or {}).get("source_url") or ""
     except Exception as e:
-        print("Cover fetch failed:", type(e).__name__)
-        return None
+        print("Cover media lookup failed:", type(e).__name__)
+    if not url:
+        return None, ""
+    try:
+        resp = g.S.get(url, timeout=60)
+        ctype = resp.headers.get("content-type", "")
+        print("Cover download: HTTP %s | %s | %d bytes" % (resp.status_code, ctype, len(resp.content)))
+        if resp.status_code == 200 and "image" in ctype:
+            return to_jpeg(resp.content), url
+    except Exception as e:
+        print("Cover download failed:", type(e).__name__, str(e)[:100])
+    return None, url
 
 
 def tag_names(ids):
@@ -94,12 +114,16 @@ def hashtags(names):
 
 
 def build_captions(p, names):
-    ex = short_excerpt(p["excerpt"]) if p["excerpt"] else ""
     tags = hashtags(names)
-    plain_cap = "%s\n\n%s\n\n🔗 مطالعه‌ی کامل مقاله:\n%s\n\n%s\n%s" % (p["title"], ex, p["link"], tags, BRAND)
-    html_cap = "<b>%s</b>\n\n%s\n\n🔗 مطالعه‌ی کامل مقاله:\n%s\n\n%s\n<b>%s</b>" % (
-        g.esc(p["title"]), g.esc(ex), g.esc(p["link"]), g.esc(tags), BRAND)
-    return plain_cap.strip()[:1000], html_cap.strip()[:1000]
+    sig_plain = "✍️ %s\n\n🆔️ %s" % (SIG_NAME, HANDLE)
+    sig_html = "✍️ <b>%s</b>\n\n🆔️ %s" % (g.esc(SIG_NAME), g.esc(HANDLE))
+    fixed = "%s\n\n\n\n🔗 مطالعه‌ی کامل مقاله:\n%s\n\n%s\n\n%s" % (p["title"], p["link"], tags, sig_plain)
+    room = max(0, 960 - len(fixed))
+    ex = short_excerpt(p["excerpt"], min(260, room)) if (p["excerpt"] and room > 60) else ""
+    plain_cap = "%s\n\n%s\n\n🔗 مطالعه‌ی کامل مقاله:\n%s\n\n%s\n\n%s" % (p["title"], ex, p["link"], tags, sig_plain)
+    html_cap = "<b>%s</b>\n\n%s\n\n🔗 مطالعه‌ی کامل مقاله:\n%s\n\n%s\n\n%s" % (
+        g.esc(p["title"]), g.esc(ex), g.esc(p["link"]), g.esc(tags), sig_html)
+    return plain_cap.strip(), html_cap.strip()
 
 
 def hint(err):
@@ -117,7 +141,7 @@ def hint(err):
     return ""
 
 
-def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link):
+def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link, photo_url=""):
     """تلگرام و بله (API سازگار): عکس + کپشن + دکمه‌ی لینک. خروجی: (موفق؟، متن خطا)"""
     markup = json.dumps({"inline_keyboard": [[{"text": "مطالعه‌ی مقاله", "url": link}]]})
     use_html = (name == "Telegram")
@@ -132,6 +156,12 @@ def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link):
             if use_html:
                 d["parse_mode"] = "HTML"
             files, method = {"photo": ("cover.jpg", jpg, "image/jpeg")}, "sendPhoto"
+        elif photo_url:
+            d["caption"] = cap
+            d["photo"] = photo_url
+            if use_html:
+                d["parse_mode"] = "HTML"
+            files, method = None, "sendPhoto"
         else:
             d["text"] = cap
             if use_html:
@@ -147,6 +177,17 @@ def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link):
         if r.status_code == 200:
             return True, ""
         last_err = r.text[:200]
+    if photo_url and not jpg:
+        d = {"chat_id": chat, "text": cap}
+        if use_html:
+            d["parse_mode"] = "HTML"
+        try:
+            r = requests.post((base % token) + "sendMessage", data=d, timeout=60)
+            print("%s sendMessage (no image): %s" % (name, r.status_code))
+            if r.status_code == 200:
+                return True, "(بدون تصویر)"
+        except Exception:
+            pass
     return False, last_err
 
 
@@ -201,13 +242,13 @@ def main():
     print("New published posts:", [p["id"] for p in new])
     for p in new[:MAX_PER_RUN]:
         names = tag_names(p["tags"])
-        jpg = cover_bytes(p["media"])
+        jpg, photo_url = cover_bytes(p["id"], p["media"])
         plain_cap, html_cap = build_captions(p, names)
         res, errs = {}, {}
         if TG_TOKEN and TG_CH:
-            res["Telegram"], errs["Telegram"] = send_bot_api("Telegram", "https://api.telegram.org/bot%s/", TG_TOKEN, TG_CH, jpg, plain_cap, html_cap, p["link"])
+            res["Telegram"], errs["Telegram"] = send_bot_api("Telegram", "https://api.telegram.org/bot%s/", TG_TOKEN, TG_CH, jpg, plain_cap, html_cap, p["link"], photo_url)
         if BALE_TOKEN and BALE_CH:
-            res["Bale"], errs["Bale"] = send_bot_api("Bale", "https://tapi.bale.ai/bot%s/", BALE_TOKEN, BALE_CH, jpg, plain_cap, html_cap, p["link"])
+            res["Bale"], errs["Bale"] = send_bot_api("Bale", "https://tapi.bale.ai/bot%s/", BALE_TOKEN, BALE_CH, jpg, plain_cap, html_cap, p["link"], photo_url)
         if EITAA_TOKEN and EITAA_CH:
             res["Eitaa"], errs["Eitaa"] = send_eitaa(EITAA_TOKEN, EITAA_CH, jpg, plain_cap, p["title"])
         key = str(p["id"])
