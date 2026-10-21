@@ -1,95 +1,32 @@
 name: generate-article
 on:
   workflow_dispatch:
-    inputs:
-      attempt:
-        description: "شماره تلاش (به‌صورت خودکار پر می‌شود)"
-        required: false
-        default: "1"
   schedule:
     # 03:30 UTC = 07:00 به وقت تهران (UTC+3:30)
     - cron: "30 3 * * *"
 
 permissions:
   contents: write
-  actions: write   # برای اجرای دوباره‌ی خودکار روی یک سرور تازه (IP جدید)
 
 concurrency:
   group: generate-article
   cancel-in-progress: false
-
-env:
-  MAX_ATTEMPTS: "6"
-  SITE: "https://mohammadmohajer.ir"
-  ATTEMPT: ${{ github.event.inputs.attempt || '1' }}
 
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # ۱) قبل از هر کار سنگین، ببین سایت از این سرور در دسترس است یا نه
-      - name: Preflight (site reachable?)
-        id: pf
-        run: |
-          ip=$(curl -s -m 15 https://api.ipify.org || echo unknown)
-          echo "Runner IP: $ip | attempt: $ATTEMPT of $MAX_ATTEMPTS"
-          ok=0
-          for i in 1 2 3; do
-            code=$(curl -s -o /dev/null -m 25 -w "%{http_code}" \
-              -A "Mozilla/5.0 (compatible; ContentEngine/1.0; +https://mohammadmohajer.ir)" \
-              "$SITE/wp-json/" || true)
-            echo "try $i: HTTP $code"
-            if [ "$code" = "200" ]; then ok=1; break; fi
-            sleep 15
-          done
-          echo "ok=$ok" >> "$GITHUB_OUTPUT"
-
-      # اگر سایت از این سرور در دسترس نبود: ۵ دقیقه صبر و اجرای دوباره روی سرور تازه
-      - name: Retry on a fresh runner (site unreachable)
-        if: steps.pf.outputs.ok != '1'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
-          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
-        run: |
-          if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
-            echo "Site unreachable from this runner. Next attempt in 5 minutes."
-            sleep 300
-            gh workflow run generate.yml -f attempt=$((ATTEMPT+1))
-            exit 0
-          fi
-          MSG="⛔ مقاله‌ی امروز ساخته نشد: سایت از سرورهای گیت‌هاب در ${MAX_ATTEMPTS} تلاش پشت‌سرهم در دسترس نبود. احتمالاً فایروال یا هاست اتصال را قطع کرده است."
-          [ -n "$TELEGRAM_BOT_TOKEN" ] && curl -s -m 30 "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" --data-urlencode "text=${MSG}" >/dev/null || true
-          [ -n "$BALE_BOT_TOKEN" ] && curl -s -m 30 "https://tapi.bale.ai/bot${BALE_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${BALE_CHAT_ID}" --data-urlencode "text=${MSG}" >/dev/null || true
-          exit 1
-
-      # ۲) بقیه‌ی مراحل فقط وقتی اجرا می‌شوند که سایت در دسترس باشد
       - uses: actions/setup-python@v5
-        if: steps.pf.outputs.ok == '1'
         with:
           python-version: "3.12"
-
-      - name: Install packages
-        if: steps.pf.outputs.ok == '1'
-        run: pip install requests pillow playwright
-
+      - run: pip install requests pillow playwright
       - name: Install fonts and browser for PDF
-        if: steps.pf.outputs.ok == '1'
         run: |
           sudo apt-get update -y
           sudo apt-get install -y fonts-noto-core
           python -m playwright install --with-deps chromium
-
       - name: Generate draft
-        id: gen
-        if: steps.pf.outputs.ok == '1'
-        continue-on-error: true   # تا مراحل بعدی (تلاش مجدد) حتی با خطا اجرا شوند
         env:
           WP_USER: content-bot
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
@@ -105,27 +42,10 @@ jobs:
           IMAGE_SIZE: "1536x1024"
           IMAGE_QUALITY: "low"
         run: python generate.py
-
       - name: Save calendar
-        if: steps.gen.outcome == 'success'
         run: |
           git config user.name "content-bot"
           git config user.email "bot@users.noreply.github.com"
           git add calendar.csv
           if [ -d covers ]; then git add covers; fi
           git diff --cached --quiet || (git commit -m "update calendar" && git push)
-
-      # اگر در میانه‌ی تولید، اتصال قطع شد (مثل امروز)، یک بار دیگر روی سرور تازه تلاش کن.
-      # ردیف تقویم تا موفقیت «ready» می‌ماند، پس مقاله‌ی تکراری ساخته نمی‌شود.
-      - name: Retry whole run on a fresh runner (generation failed)
-        if: steps.gen.outcome == 'failure' && fromJSON(env.ATTEMPT) < 3
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          echo "Generation failed. Retrying in 5 minutes on a new runner."
-          sleep 300
-          gh workflow run generate.yml -f attempt=$((ATTEMPT+1))
-
-      - name: Fail the run if generation failed
-        if: steps.gen.outcome == 'failure'
-        run: exit 1
