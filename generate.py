@@ -1,4 +1,4 @@
-import os, csv, re, sys, time, base64, io, random, math
+import os, csv, re, sys, time, base64, io, random, math, json
 import html as htmllib
 import requests
 from requests.adapters import HTTPAdapter
@@ -1181,31 +1181,67 @@ A4: ...""" % (title, kw), 1800)
     full = '<div class="mm-article">' + GRID_STYLE + hero + build_toc(toc_items) + top_btn + core + end_btn + build_cta() + "</div>"
 
     focus = ", ".join([kw] + [x.strip() for x in kw2.split("،") if x.strip()][:2])
-    payload = {"title": title, "slug": slug, "content": full, "excerpt": excerpt,
-               "status": "draft", "categories": cat_ids, "tags": tag_ids,
-               "meta": {"rank_math_title": meta_title, "rank_math_description": meta_desc,
-                        "rank_math_focus_keyword": focus}}
-    if featured_id:
-        payload["featured_media"] = featured_id
-    try:
-        post = wp("POST", WP + "/wp-json/wp/v2/posts", tries=1, auth=AUTH, timeout=120, json=payload)
-    except requests.exceptions.RequestException as e:
-        print("Create post error %s; checking whether it was created..." % type(e).__name__)
-        time.sleep(20)
-        found = wp("GET", WP + "/wp-json/wp/v2/posts", params={"slug": slug, "status": "any"}, auth=AUTH, timeout=60).json()
-        if isinstance(found, list) and found:
-            class _P:
-                status_code = 201
+    print("Content size: %d KB" % (len(full.encode("utf-8")) // 1024))
 
-                def json(self):
-                    return found[0]
-            post = _P()
-        else:
-            post = wp("POST", WP + "/wp-json/wp/v2/posts", tries=2, auth=AUTH, timeout=120, json=payload)
-    print("Create post:", post.status_code)
-    if post.status_code not in (200, 201):
-        sys.exit(post.text[:300])
-    pid = post.json()["id"]
+    def mark_row(post_id):
+        if "wp_id" not in fields:
+            fields.append("wp_id")
+        row["status"] = "draft"
+        row["wp_id"] = str(post_id)
+        with open("calendar.csv", "w", encoding="utf-8", newline="") as cf:
+            cw = csv.DictWriter(cf, fieldnames=fields)
+            cw.writeheader()
+            cw.writerows(rows)
+
+    # فاز ۱: ساخت پیش‌نویس سبک (درخواست کوچک و سریع)
+    small = {"title": title, "slug": slug, "status": "draft", "categories": cat_ids, "tags": tag_ids,
+             "content": "<p>در حال تکمیل محتوا…</p>"}
+    pid = None
+    for attempt in range(2):
+        try:
+            post = wp("POST", WP + "/wp-json/wp/v2/posts", tries=1, auth=AUTH, timeout=180, json=small)
+        except requests.exceptions.RequestException as e:
+            print("Create draft error %s (attempt %d); checking whether it was created..." % (type(e).__name__, attempt + 1))
+            time.sleep(60)
+            try:
+                found = wp("GET", WP + "/wp-json/wp/v2/posts", tries=2, params={"slug": slug, "status": "any", "_fields": "id"},
+                           auth=AUTH, timeout=60).json()
+                if isinstance(found, list) and found:
+                    pid = found[0]["id"]
+                    print("Draft already exists:", pid)
+                    break
+            except Exception:
+                pass
+            continue
+        if post.status_code not in (200, 201):
+            fail_run("ساخت پیش‌نویس ناموفق بود: HTTP %s %s" % (post.status_code, post.text[:150]))
+        pid = post.json()["id"]
+        break
+    if not pid:
+        fail_run("ساخت پیش‌نویس در وردپرس (دو بار) timeout شد؛ سایت در نوشتن کند است. مقاله‌ی تولیدشده ذخیره نشد.")
+    print("Create post: 201 (light draft)")
+
+    # فاز ۲: ذخیره‌ی محتوای کامل (به‌روزرسانی ایمن؛ تکرارش مشکلی نمی‌سازد)
+    update = {"content": full, "excerpt": excerpt,
+              "meta": {"rank_math_title": meta_title, "rank_math_description": meta_desc, "rank_math_focus_keyword": focus}}
+    if featured_id:
+        update["featured_media"] = featured_id
+    os.makedirs("pending", exist_ok=True)
+    pending_path = os.path.join("pending", "%s.json" % pid)
+    with open(pending_path, "w", encoding="utf-8") as pf:
+        json.dump(update, pf, ensure_ascii=False)
+    try:
+        up = wp("POST", "%s/wp-json/wp/v2/posts/%s" % (WP, pid), tries=4, auth=AUTH, timeout=240, json=update)
+        if up.status_code not in (200, 201):
+            raise requests.exceptions.RequestException("HTTP %s %s" % (up.status_code, up.text[:120]))
+    except requests.exceptions.RequestException as e:
+        mark_row(pid)
+        fail_run("پیش‌نویس %s ساخته شد ولی ذخیره‌ی محتوای کامل ناموفق بود (%s). محتوا در مخزن نگه‌داری شد؛ بعداً workflow «retry-pending» را اجرا کنید." % (pid, str(e)[:100]))
+    try:
+        os.remove(pending_path)
+    except Exception:
+        pass
+    print("Create post: %s" % up.status_code)
     print("Draft ID:", pid, "| edit:", "%s/wp-admin/post.php?post=%s&action=edit" % (WP, pid))
     if cover_b64:
         try:
