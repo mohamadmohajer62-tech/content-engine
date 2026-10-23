@@ -1,0 +1,17 @@
+name: wp-health
+on: workflow_dispatch
+
+jobs:
+  h:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow
+      - name: Measure site speed
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+        run: python wp_health.py
