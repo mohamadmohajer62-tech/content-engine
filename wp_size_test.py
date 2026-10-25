@@ -39,6 +39,16 @@ def realistic():
     return "\n".join(parts)
 
 
+def png(w, h):
+    import zlib, struct
+    def chunk(t, d):
+        c = struct.pack(">I", len(d)) + t + d
+        return c + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    raw = b"".join(b"\x00" + os.urandom(w * 3) for _ in range(h))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
+
+
 print("=== 0. ping snippet ===")
 r = call("GET /mm/v1/ping", "GET", "/wp-json/mm/v1/ping")
 bridge = bool(r is not None and r.status_code == 200)
@@ -95,6 +105,13 @@ try:
                     print("  read-back identical:", got == html, "(len %d vs %d)" % (len(got), len(html)), flush=True)
             elif rr is not None:
                 print("  commit answer:", rr.text[:200], flush=True)
+    print("\n=== 6. media upload (cover image / PDF use this path) ===")
+    for label, (w, h) in (("media png ~30KB", (100, 100)), ("media png ~300KB", (320, 320))):
+        data = png(w, h)
+        rr = call("%s (%d B)" % (label, len(data)), "POST", "/wp-json/wp/v2/media", data=data,
+                  headers={"Content-Disposition": 'attachment; filename="wp-size-test.png"', "Content-Type": "image/png"})
+        if rr is not None and rr.status_code in (200, 201):
+            call("  delete test media", "DELETE", "/wp-json/wp/v2/media/%d" % rr.json()["id"], params={"force": "true"})
 finally:
     print("\n=== cleanup ===")
     call("delete test draft", "DELETE", "/wp-json/wp/v2/posts/%d" % pid, params={"force": "true"})
