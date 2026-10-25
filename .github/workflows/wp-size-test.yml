@@ -1,16 +1,31 @@
 name: wp-size-test
 on:
   workflow_dispatch:
+    inputs:
+      mtu:
+        description: "MTU رابط شبکه (خالی = بدون تغییر؛ برای مقایسه 1200 را امتحان کنید)"
+        required: false
+        default: ""
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install requests
+      - name: Optional MTU change
+        env:
+          MTU: ${{ github.event.inputs.mtu }}
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          echo "interface: $IFACE, current:"; ip link show "$IFACE" | head -1
+          if [ -n "$MTU" ]; then
+            sudo ip link set dev "$IFACE" mtu "$MTU"
+            echo "MTU set to $MTU"; ip link show "$IFACE" | head -1
+          fi
       - name: Find size threshold and test the bridge
         env:
           WP_USER: content-bot
