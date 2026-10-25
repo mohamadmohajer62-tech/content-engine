@@ -4,12 +4,18 @@ on: workflow_dispatch
 jobs:
   h:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install requests pillow
+      - name: Lower MTU (fixes timeouts to the WordPress host)
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          sudo ip link set dev "$IFACE" mtu 1200
+          ip link show "$IFACE" | head -1
       - name: Measure site speed
         env:
           WP_USER: content-bot

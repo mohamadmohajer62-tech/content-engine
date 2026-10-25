@@ -15,6 +15,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,6 +27,11 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y fonts-noto-core
           python -m playwright install --with-deps chromium
+      - name: Lower MTU (fixes timeouts to the WordPress host)
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          sudo ip link set dev "$IFACE" mtu 1200
+          ip link show "$IFACE" | head -1
       - name: Generate draft
         env:
           WP_USER: content-bot
