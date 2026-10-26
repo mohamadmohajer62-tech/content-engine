@@ -113,6 +113,8 @@ def fail_run(msg):
 
 def latin_ratio(t):
     s = plain(t, 10 ** 7)
+    s = re.sub(r"\([^)]*\)", " ", s)                      # توضیح انگلیسی داخل پرانتز
+    s = re.sub(r"\b[A-Z][A-Z0-9&/+.\-]{1,9}\b", " ", s)    # اختصارهای رایج مثل SWOT و SEO و KPI
     lat = len(re.findall(r"[A-Za-z]", s))
     per = len(re.findall(r"[\u0600-\u06FF]", s))
     return lat / float(lat + per + 1)
@@ -1040,14 +1042,22 @@ H7: جمع‌بندی | هدف بخش در یک جمله""" % (row["topic"], kw,
 فقط HTML ساده (p, ul, li, h3, blockquote). تیتر h2 نگذار و مطالب بخش‌های دیگر را تکرار نکن.
 پایان متن قبلی (تکرارش نکن): %s""" % (title, kw, names, name, goal, extra, prev))
         body = ""
-        for attempt in range(3):
-            cand = clean(ask(prompt_sec, 1800))
-            if latin_ratio(cand) <= 0.2 and len(plain(cand, 10 ** 6)) > 400:
+        reason = ""
+        for attempt in range(5):
+            p_try = prompt_sec
+            if attempt >= 1:
+                p_try += ("\n\nمهم: متن را فقط و کاملاً به زبان فارسی بنویس. اصطلاح انگلیسی (مثل SWOT) "
+                          "فقط به‌صورت اختصار یا داخل پرانتز بیاید؛ از نوشتن جمله یا فهرست انگلیسی خودداری کن.")
+            cand = clean(ask(p_try, 1800))
+            lr = latin_ratio(cand)
+            ln = len(plain(cand, 10 ** 6))
+            if lr <= 0.2 and ln > 400:
                 body = cand
                 break
-            print("Section %d looks wrong (language/length), retry %d/3" % (i + 1, attempt + 1))
+            reason = "نسبت حروف لاتین %.2f، طول %d نویسه" % (lr, ln)
+            print("Section %d looks wrong (%s), retry %d/5" % (i + 1, reason, attempt + 1))
         if not body:
-            fail_run("بخش «%s» به فارسی درست تولید نشد؛ اجرا متوقف شد تا مقاله‌ی خراب منتشر نشود." % name)
+            fail_run("بخش «%s» پس از ۵ تلاش به فارسی درست تولید نشد (%s). مقاله‌ای ساخته نشد و موضوع از تقویم حذف نشده است؛ workflow «generate-article» را دوباره اجرا کنید." % (name, reason))
         head_html = "" if i == 0 else '<h2 id="mm-s%d" style="scroll-margin-top:90px">%s</h2>\n' % (i, esc(name))
         parts.append(head_html + body + "\n")
     words = len(plain(" ".join(parts), 10 ** 7).split())
