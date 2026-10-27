@@ -73,15 +73,23 @@ if todo and SHEETS_URL and SHEETS_SECRET:
         "email": L["email"], "interests": L["interests"], "source": L["source"], "page": L["page"],
     } for L in todo]
     try:
+        if not SHEETS_URL.endswith("/exec"):
+            print("هشدار: آدرس SHEETS_URL باید با /exec تمام شود (نه /dev).")
         resp = requests.post(SHEETS_URL, json={"secret": SHEETS_SECRET, "rows": rows}, timeout=90)
-        data = resp.json()
+        print("Sheet HTTP", resp.status_code, "| content-type:", resp.headers.get("content-type", ""))
+        try:
+            data = resp.json()
+        except Exception:
+            print("پاسخ شیت JSON نیست (معمولاً یعنی دسترسی Web app روی Anyone نیست یا مجوز داده نشده). ابتدای پاسخ:")
+            print(resp.text[:200].replace("\n", " "))
+            data = {}
         if data.get("ok"):
             synced = [int(i) for i in data.get("saved", []) if str(i).isdigit()]
             print("Sheet saved:", len(synced))
-        else:
+        elif data:
             print("Sheet error:", str(data)[:200])
     except Exception as e:
-        print("Sheet request failed:", type(e).__name__)
+        print("Sheet request failed:", type(e).__name__, str(e)[:150])
 elif todo:
     print("SHEETS_URL/SHEETS_SECRET not set; rows stay pending.")
 
