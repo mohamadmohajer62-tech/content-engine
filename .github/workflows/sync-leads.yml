@@ -1,0 +1,36 @@
+name: sync-leads
+on:
+  workflow_dispatch:
+  schedule:
+    # هر ۱۰ دقیقه. اگر مخزن را دوباره خصوصی کردید، این را به هر ساعت تغییر دهید: "5 * * * *"
+    - cron: "*/10 * * * *"
+
+concurrency:
+  group: sync-leads
+  cancel-in-progress: false
+
+jobs:
+  s:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow
+      - name: Lower MTU (fixes timeouts to the WordPress host)
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          sudo ip link set dev "$IFACE" mtu 1200
+      - name: Sync new subscribers
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+          SHEETS_URL: ${{ secrets.SHEETS_URL }}
+          SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
+        run: python sync_leads.py
