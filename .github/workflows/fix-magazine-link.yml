@@ -1,0 +1,29 @@
+name: fix-magazine-link
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "0 = فقط شمارش  |  1 = اصلاح لینک در مقاله‌ها"
+        required: false
+        default: "0"
+
+jobs:
+  f:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow
+      - name: Lower MTU (fixes timeouts to the WordPress host)
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          sudo ip link set dev "$IFACE" mtu 1200
+      - name: Fix magazine links
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          APPLY: ${{ github.event.inputs.apply }}
+        run: python fix_magazine_link.py
