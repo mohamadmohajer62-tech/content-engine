@@ -1,0 +1,77 @@
+name: build-issue
+on:
+  workflow_dispatch:
+    inputs:
+      issue_no:
+        description: "شماره‌ی نشریه (خالی = هر شماره‌ی بسته‌شده‌ی بدون PDF)"
+        required: false
+        default: ""
+      force:
+        description: "ساخت دوباره حتی اگر PDF دارد (1 = بله)"
+        required: false
+        default: "0"
+      editorial:
+        description: "سخن سردبیر دلخواه (خالی = خودکار)"
+        required: false
+        default: ""
+  schedule:
+    # هر روز ساعت ۸ صبح تهران؛ فقط وقتی شماره‌ی بسته‌شده‌ی بدون PDF باشد کار می‌کند
+    - cron: "30 4 * * *"
+
+concurrency:
+  group: build-issue
+  cancel-in-progress: false
+
+jobs:
+  b:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow
+      - name: Lower MTU (fixes timeouts to the WordPress host)
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          sudo ip link set dev "$IFACE" mtu 1200
+      - name: Is there an issue to build?
+        id: chk
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          ISSUE_NO: ${{ github.event.inputs.issue_no }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: python build_issue.py check
+      - name: Install PDF tools
+        if: steps.chk.outputs.need == 'true'
+        run: |
+          pip install playwright pypdf
+          sudo apt-get update -y
+          sudo apt-get install -y fonts-noto-core || true
+          sudo apt-get install -y fonts-vazirmatn || echo "Vazirmatn not available; using Noto"
+          python -m playwright install --with-deps chromium
+      - name: Build issue PDF
+        if: steps.chk.outputs.need == 'true'
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_MODEL: gpt-4o-mini
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+          ISSUE_NO: ${{ github.event.inputs.issue_no }}
+          FORCE: ${{ github.event.inputs.force }}
+          EDITORIAL: ${{ github.event.inputs.editorial }}
+        run: python build_issue.py
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.chk.outputs.need == 'true'
+        with:
+          name: issue-pdf
+          path: out/
+          if-no-files-found: ignore
+          retention-days: 7

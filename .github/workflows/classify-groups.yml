@@ -1,0 +1,37 @@
+name: classify-groups
+on:
+  workflow_dispatch:
+  schedule:
+    # هر روز ساعت ۹ صبح تهران (بعد از ساخت مقاله‌ی ۷ صبح)
+    - cron: "30 5 * * *"
+
+concurrency:
+  group: classify-groups
+  cancel-in-progress: false
+
+jobs:
+  c:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow
+      - name: Lower MTU (fixes timeouts to the WordPress host)
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          sudo ip link set dev "$IFACE" mtu 1200
+      - name: Classify articles into magazine groups
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_MODEL: gpt-4o-mini
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+        run: python classify_groups.py
