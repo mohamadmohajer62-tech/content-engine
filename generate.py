@@ -18,6 +18,7 @@ GAP_BASE = "https://api.gapgpt.app/v1"
 MAKE_PDF = os.environ.get("MAKE_PDF", "1").strip() != "0"
 MAGAZINE_NAME = "مجله رشد کسب‌وکار"
 MAGAZINE_URL = os.environ.get("MAGAZINE_URL", "").strip() or "https://mohammadmohajer.ir/"
+MAGAZINE_CAT_SLUG = os.environ.get("MAGAZINE_CAT_SLUG", "").strip() or "business-growth-magazine"  # اسلاگ دسته‌ی مجله (جدا از آدرس صفحه‌ی مجله)
 AUTHOR_LINE = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
@@ -1115,11 +1116,10 @@ A4: ...""" % (title, kw), 1800)
         cat_ids = [c["id"] for c in cr.json() if c.get("name", "").strip() == row["category"].strip()]
     except Exception as e:
         print("Category lookup failed (%s); continuing without category." % type(e).__name__)
-    mag_parts = [x for x in MAGAZINE_URL.rstrip("/").split("/") if x]
-    if "/category/" in MAGAZINE_URL and mag_parts:
+    if MAGAZINE_CAT_SLUG:
         try:
             mr = wp("GET", WP + "/wp-json/wp/v2/categories", tries=3, auth=AUTH, timeout=60,
-                    params={"slug": mag_parts[-1], "_fields": "id,name"})
+                    params={"slug": MAGAZINE_CAT_SLUG, "_fields": "id,name"})
             for c in mr.json():
                 if c.get("id") not in cat_ids:
                     cat_ids.append(c["id"])

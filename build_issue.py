@@ -16,6 +16,12 @@ ED_OVERRIDE = os.environ.get("EDITORIAL", "").strip()
 API = g.WP + "/wp-json/mm-magazine/v1"
 os.makedirs("out", exist_ok=True)
 
+TG_URL = os.environ.get("TG_URL", "https://t.me/fcmo_mohajer")
+BALE_URL = os.environ.get("BALE_URL", "https://ble.ir/fcmo_mohajer")
+EITAA_URL = os.environ.get("EITAA_URL", "https://eitaa.com/fcmo_mohajer")
+HANDLE = os.environ.get("CHANNEL_HANDLE", "@fcmo_mohajer")
+MAG_URL = os.environ.get("MAGAZINE_PAGE_URL", "https://mohammadmohajer.ir/business-growth-magazine/")
+
 GOLD, GOLD2, EM0, EM1, EM2, PAPER = "#C9A24B", "#E8CF8A", "#07150c", "#0f2a1b", "#173b25", "#f9f4e7"
 FONT = b.FONT
 
@@ -201,12 +207,27 @@ def toc_html(no, rows, folio):
 
 
 def back_html():
-    return ('<div class="pg" style="background:linear-gradient(160deg,%s,%s)"><div style="position:absolute;inset:9mm;border:.9mm solid %s"></div>'
-            '<div style="position:absolute;inset:12mm;border:.3mm solid rgba(232,207,138,.5)"></div>'
-            '<div style="position:absolute;left:0;right:0;top:50%%;transform:translateY(-50%%);text-align:center;color:#fff">'
-            '<div style="color:%s;font-size:26pt">◆</div><div style="color:%s;font-size:30pt;font-weight:800;margin:6mm 0">نشریه‌ی هفتگی رشد کسب‌وکار</div>'
-            '<div style="font-size:14pt;color:#cfe0c9">محمد مهاجر | استراتژیست رشد کسب‌وکار</div>'
-            '<div style="font-size:12pt;color:#cfe0c9;margin-top:3mm;direction:ltr">mohammadmohajer.ir</div></div></div>' % (EM2, EM0, GOLD2, GOLD, GOLD2))
+    def chip(name, url):
+        return ('<a href="%s" style="flex:1;display:block;text-decoration:none;color:#fff;border:.4mm solid %s;border-radius:4mm;padding:5mm 3mm;text-align:center">'
+                '<div style="color:%s;font-weight:800;font-size:15pt">%s</div>'
+                '<div style="font-size:11pt;direction:ltr;margin-top:1mm;color:#e9efe5">%s</div></a>') % (url, GOLD2, GOLD2, name, HANDLE)
+    socials = '<div style="display:flex;gap:5mm">%s%s%s</div>' % (chip("تلگرام", TG_URL), chip("بله", BALE_URL), chip("ایتا", EITAA_URL))
+    return (
+        '<div class="pg" style="background:linear-gradient(160deg,%s,%s)"><div style="position:absolute;inset:9mm;border:.9mm solid %s"></div>'
+        '<div style="position:absolute;inset:12mm;border:.3mm solid rgba(232,207,138,.5)"></div>'
+        '<div style="position:absolute;left:26mm;right:26mm;top:34mm;text-align:center;color:#fff">'
+        '<div style="color:%s;font-size:24pt">◆</div>'
+        '<div style="color:%s;font-size:27pt;font-weight:900;line-height:1.6;margin:5mm 0 4mm">نشریه‌های بعدی را از دست ندهید</div>'
+        '<div style="font-size:14.5pt;line-height:2.1;color:#e3eedd">نشریه‌ی هفتگی «رشد کسب‌وکار» هر شنبه، منظم و به‌روز برای شما ارسال می‌شود. '
+        'برای دریافت شماره‌ی بعد، در نشریه عضو شوید.</div>'
+        '<a href="%s" style="display:inline-block;margin:8mm 0 12mm;text-decoration:none;background:linear-gradient(115deg,#8f6b1e,#e8cf8a 45%%,#c9a24b);'
+        'color:#2a1c05;font-weight:900;font-size:15pt;padding:3.5mm 14mm;border-radius:99mm">عضویت در نشریه</a>'
+        '<div style="color:%s;font-size:14pt;font-weight:800;margin-bottom:5mm">ما را در این شبکه‌ها دنبال کنید</div>%s'
+        '<div style="margin-top:14mm;font-size:14pt;line-height:2.1;color:#e3eedd">اگر این نشریه برایتان مفید بود، آن را برای کسی که به آن نیاز دارد بفرستید.</div>'
+        '<div style="margin-top:12mm;color:%s;font-size:16pt;font-weight:800">محمد مهاجر</div>'
+        '<div style="font-size:12pt;color:#cfe0c9">استراتژیست رشد کسب‌وکار</div>'
+        '<div style="font-size:11pt;color:#cfe0c9;margin-top:2mm;direction:ltr">mohammadmohajer.ir</div></div></div>'
+        % (EM2, EM0, GOLD2, GOLD, GOLD2, MAG_URL, GOLD2, socials, GOLD2))
 
 
 def render_pdf(inner):
@@ -285,7 +306,7 @@ def build(issue):
     open(path, "wb").write(pdf)
     print("PDF: %d KB, %d pages" % (len(pdf) // 1024, page_count(pdf)))
 
-    mid, url = g.upload_media(pdf, "mm-issue-%s.pdf" % no, "application/pdf", title)
+    mid, url = g.upload_media(pdf, "rushd-kasbokar-weekly-issue-%02d.pdf" % int(no), "application/pdf", title)
     if not url:
         g.notify("⚠️ PDF شماره‌ی %s ساخته شد ولی بارگذاری در وردپرس ناموفق بود. فایل در Artifacts همین اجرا هست." % no)
         return
