@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests pillow playwright
+      - run: pip install requests pillow playwright pypdf
       - name: Install fonts and browser for PDF
         run: |
           sudo apt-get update -y
@@ -42,7 +42,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
           BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
-          MAGAZINE_URL: "https://mohammadmohajer.ir/category/business-growth-magazine/"
+          MAGAZINE_URL: "https://mohammadmohajer.ir/business-growth-magazine/"
+          MAGAZINE_CAT_SLUG: "business-growth-magazine"
           LLM_MODEL: gpt-4o-mini
           IMAGE_MODEL: "gpt-image-2"
           IMAGE_SIZE: "1536x1024"
