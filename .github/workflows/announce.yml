@@ -5,9 +5,13 @@ on:
       force_ids:
         description: "Post IDs to re-send (comma separated, optional)"
         required: false
+      test_follow_id:
+        description: "آزمایش سه پیام پیاپی: شماره‌ی مقاله (فقط به چت شخصی شما می‌فرستد، نه کانال‌ها)"
+        required: false
+        default: ""
   schedule:
-    # هر ساعت، دقیقه‌ی ۱۵
-    - cron: "15 * * * *"
+    # هر ۱۵ دقیقه (برای فاصله‌ی دقیق‌تر پیام‌های پیاپی)
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: write
@@ -19,7 +23,7 @@ concurrency:
 jobs:
   a:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -30,11 +34,13 @@ jobs:
         run: |
           IFACE=$(ip route show default | awk '{print $5}' | head -1)
           sudo ip link set dev "$IFACE" mtu 1200
-          ip link show "$IFACE" | head -1
-      - name: Announce new posts
+      - name: Announce new posts and follow-ups
         env:
           WP_USER: content-bot
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_MODEL: gpt-4o-mini
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
@@ -44,6 +50,7 @@ jobs:
           EITAA_TOKEN: ${{ secrets.EITAA_TOKEN }}
           EITAA_CHANNEL_ID: ${{ secrets.EITAA_CHANNEL_ID }}
           FORCE_IDS: ${{ github.event.inputs.force_ids }}
+          TEST_FOLLOW_ID: ${{ github.event.inputs.test_follow_id }}
         run: python announce.py
       - name: Save state
         run: |

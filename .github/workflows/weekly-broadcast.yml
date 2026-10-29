@@ -1,0 +1,54 @@
+name: weekly-broadcast
+on:
+  workflow_dispatch:
+    inputs:
+      issue_no:
+        description: "شماره‌ی نشریه (خالی = آخرین شماره‌ی آماده‌ی ارسال)"
+        required: false
+        default: ""
+      test_owner:
+        description: "1 = آزمایش: فقط به چت شخصی شما (به کانال‌ها نه)"
+        required: false
+        default: "0"
+      force:
+        description: "1 = حتی اگر قبلاً ارسال شده"
+        required: false
+        default: "0"
+  schedule:
+    # شنبه ساعت ۹:۳۰ تهران شروع می‌شود و تا ۱۰:۰۰ صبر می‌کند
+    - cron: "0 6 * * 6"
+
+concurrency:
+  group: weekly-broadcast
+  cancel-in-progress: false
+
+jobs:
+  w:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests pillow
+      - name: Lower MTU (fixes timeouts to the WordPress host)
+        run: |
+          IFACE=$(ip route show default | awk '{print $5}' | head -1)
+          sudo ip link set dev "$IFACE" mtu 1200
+      - name: Send weekly issue
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHANNEL_ID: ${{ secrets.TELEGRAM_CHANNEL_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+          BALE_CHANNEL_ID: ${{ secrets.BALE_CHANNEL_ID }}
+          EITAA_TOKEN: ${{ secrets.EITAA_TOKEN }}
+          EITAA_CHANNEL_ID: ${{ secrets.EITAA_CHANNEL_ID }}
+          ISSUE_NO: ${{ github.event.inputs.issue_no }}
+          TEST_OWNER: ${{ github.event.inputs.test_owner }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: python weekly_broadcast.py
