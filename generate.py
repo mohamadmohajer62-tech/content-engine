@@ -829,6 +829,67 @@ a { color:@@o@@; text-decoration:none; }
                esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(AUTHOR_LINE), esc(WP)))
 
 
+
+# ---------------------------------------------------------------- اسلاید دعوت به اقدام در پایان PDF مقاله
+TG_URL = os.environ.get("TG_URL", "https://t.me/fcmo_mohajer")
+BALE_URL = os.environ.get("BALE_URL", "https://ble.ir/fcmo_mohajer")
+EITAA_URL = os.environ.get("EITAA_URL", "https://eitaa.com/fcmo_mohajer")
+CHANNEL_HANDLE = os.environ.get("CHANNEL_HANDLE", "@fcmo_mohajer")
+
+
+def cta_slide_html():
+    gold, gold2 = "#C9A24B", "#E8CF8A"
+
+    def chip(name, url):
+        return ('<a href="%s" style="flex:1;display:block;text-decoration:none;color:#fff;border:.4mm solid %s;border-radius:4mm;padding:5mm 3mm;text-align:center">'
+                '<div style="color:%s;font-weight:800;font-size:15pt">%s</div>'
+                '<div style="font-size:11pt;direction:ltr;margin-top:1mm;color:#e9efe5">%s</div></a>') % (url, gold2, gold2, name, CHANNEL_HANDLE)
+    socials = '<div style="display:flex;gap:5mm">%s%s%s</div>' % (chip("تلگرام", TG_URL), chip("بله", BALE_URL), chip("ایتا", EITAA_URL))
+    body = (
+        '<div style="width:210mm;height:297mm;position:relative;overflow:hidden;background:linear-gradient(160deg,#173b25,#07150c)">'
+        '<div style="position:absolute;inset:9mm;border:.9mm solid %s"></div><div style="position:absolute;inset:12mm;border:.3mm solid rgba(232,207,138,.5)"></div>'
+        '<div style="position:absolute;left:26mm;right:26mm;top:34mm;text-align:center;color:#fff">'
+        '<div style="color:%s;font-size:24pt">◆</div>'
+        '<div style="color:%s;font-size:27pt;font-weight:900;line-height:1.6;margin:5mm 0 4mm">نشریه‌های بعدی را از دست ندهید</div>'
+        '<div style="font-size:14.5pt;line-height:2.1;color:#e3eedd">نشریه‌ی هفتگی «رشد کسب‌وکار» هر شنبه، منظم و به‌روز برای شما ارسال می‌شود. برای دریافت شماره‌ی بعد، در نشریه عضو شوید.</div>'
+        '<a href="%s" style="display:inline-block;margin:8mm 0 12mm;text-decoration:none;background:linear-gradient(115deg,#8f6b1e,#e8cf8a 45%%,#c9a24b);'
+        'color:#2a1c05;font-weight:900;font-size:15pt;padding:3.5mm 14mm;border-radius:99mm">عضویت در نشریه</a>'
+        '<div style="color:%s;font-size:14pt;font-weight:800;margin-bottom:5mm">ما را در این شبکه‌ها دنبال کنید</div>%s'
+        '<div style="margin-top:14mm;font-size:14pt;line-height:2.1;color:#e3eedd">اگر این فایل برایتان مفید بود، آن را برای کسی که به آن نیاز دارد بفرستید.</div>'
+        '<div style="margin-top:12mm;color:%s;font-size:16pt;font-weight:800">محمد مهاجر</div>'
+        '<div style="font-size:12pt;color:#cfe0c9">استراتژیست رشد کسب‌وکار</div>'
+        '<div style="font-size:11pt;color:#cfe0c9;margin-top:2mm;direction:ltr">mohammadmohajer.ir</div></div></div>'
+        % (gold2, gold, gold2, MAGAZINE_URL, gold2, socials, gold2))
+    return ('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><style>@page{size:210mm 297mm;margin:0}*{box-sizing:border-box}'
+            'body{margin:0;font-family:"Vazirmatn","Noto Sans Arabic","Noto Naskh Arabic",sans-serif}</style></head><body>%s</body></html>' % body)
+
+
+def _append_cta(data, browser):
+    """یک صفحه‌ی تمام‌قد (اسلاید سبز) به انتهای PDF می‌چسباند؛ اگر pypdf نبود، PDF دست‌نخورده می‌ماند."""
+    try:
+        from pypdf import PdfReader, PdfWriter
+    except Exception:
+        print("pypdf not installed; CTA slide skipped")
+        return data
+    try:
+        pg = browser.new_page()
+        pg.set_content(cta_slide_html(), wait_until="load")
+        pg.wait_for_timeout(300)
+        cta = pg.pdf(width="210mm", height="297mm", print_background=True, prefer_css_page_size=True,
+                     margin={"top": "0", "bottom": "0", "left": "0", "right": "0"})
+        w = PdfWriter()
+        for part in (data, cta):
+            for page in PdfReader(io.BytesIO(part)).pages:
+                w.add_page(page)
+        w.add_metadata({"/MM_CTA": "1"})      # نشانه برای حذف این صفحه هنگام ساخت PDF نشریه
+        buf = io.BytesIO()
+        w.write(buf)
+        return buf.getvalue()
+    except Exception as e:
+        print("CTA slide skipped:", type(e).__name__, str(e)[:120])
+        return data
+
+
 def make_pdf(doc):
     try:
         from playwright.sync_api import sync_playwright
@@ -840,6 +901,7 @@ def make_pdf(doc):
                           margin={"top": "16mm", "bottom": "18mm", "left": "14mm", "right": "14mm"},
                           display_header_footer=True, header_template="<div></div>",
                           footer_template='<div style="font-size:9px;width:100%;text-align:center;color:#64748b"><span class="pageNumber"></span> / <span class="totalPages"></span></div>')
+            data = _append_cta(data, b)
             b.close()
         print("PDF generated: %d KB" % (len(data) // 1024))
         return data

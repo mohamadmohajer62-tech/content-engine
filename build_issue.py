@@ -112,16 +112,36 @@ def core_html(content):
     return "\n".join(keep)
 
 
+def strip_cta(data):
+    """PDF مقاله‌ها در پایان اسلاید دعوت دارند؛ در PDF نشریه فقط یک پشت جلد می‌ماند."""
+    try:
+        from pypdf import PdfReader, PdfWriter
+        rd = PdfReader(io.BytesIO(data))
+        meta = rd.metadata or {}
+        if str(meta.get("/MM_CTA", "")) != "1" or len(rd.pages) < 2:
+            return data
+        w = PdfWriter()
+        for pg in list(rd.pages)[:-1]:
+            w.add_page(pg)
+        buf = io.BytesIO()
+        w.write(buf)
+        return buf.getvalue()
+    except Exception as e:
+        print("strip_cta skipped:", type(e).__name__)
+        return data
+
+
 def article_pdf(p, img_bytes):
     """PDF مقاله: اول نسخه‌ی موجود؛ اگر نبود، بسازد."""
     if p["pdf_url"]:
         data = download(p["pdf_url"])
         if data and data[:4] == b"%PDF":
-            return data
+            return strip_cta(data)
     print("Article %s has no PDF; generating." % p["id"])
     words = len(b.strip_html(p["content"], 10 ** 6).split())
     doc = g.pdf_document(p["title"], webp_b64(img_bytes), core_html(p["content"]), max(1, round(words / 180)))
-    return g.make_pdf(doc)
+    out = g.make_pdf(doc)
+    return strip_cta(out) if out else out
 
 
 # ------------------------------------------------------------------ سخن سردبیر
