@@ -6,7 +6,17 @@ import os
 import sys
 import requests
 import generate as g
+try:
+    import mailerlite as ml
+except ImportError:      # فایل mailerlite.py هنوز آپلود نشده
+    ml = None
 
+LABELS = {
+    "diagnosis": "تشخیص و تحلیل بازار", "positioning": "جایگاه‌یابی و برندینگ", "pricing": "قیمت‌گذاری و پیشنهاد فروش",
+    "acquisition": "جذب مشتری و بازاریابی", "sales": "فروش و تبدیل", "retention": "نگهداشت و وفاداری",
+    "systems": "سیستم‌سازی و مدیریت رشد", "tools": "ابزار، الگو و تجربه‌ها",
+}
+ML_ON = bool(ml and ml.enabled())
 SHEETS_URL = os.environ.get("SHEETS_URL", "").strip()
 SHEETS_SECRET = os.environ.get("SHEETS_SECRET", "").strip()
 BASE = g.WP + "/wp-json/mm-magazine/v1"
@@ -34,7 +44,7 @@ def send(text):
 
 
 try:
-    r = wp("GET", "/leads")
+    r = wp("GET", "/leads", params={"ml": "1"} if ML_ON else None)
 except requests.exceptions.RequestException as e:
     print("Cannot reach WordPress:", type(e).__name__)
     sys.exit(1)
@@ -49,7 +59,7 @@ if not leads:
     sys.exit(0)
 print("Leads to process:", len(leads))
 
-notified, synced = [], []
+notified, synced, ml_done = [], [], []
 
 # ۱) اعلان
 for L in leads:
@@ -93,10 +103,23 @@ if todo and SHEETS_URL and SHEETS_SECRET:
 elif todo:
     print("SHEETS_URL/SHEETS_SECRET not set; rows stay pending.")
 
+
+# ۲.۵) MailerLite: افزودن مشترک به گروه «همه‌ی اعضا» و گروه‌های علاقه‌مندی
+if ML_ON:
+    todo_ml = [L for L in leads if not L.get("ml")]
+    if todo_ml:
+        ids = ml.ensure_groups(list(LABELS.values()))
+        for L in todo_ml:
+            gids = [ids.get(ml.ALL_GROUP)] + [ids.get(ml.INTEREST_PREFIX + LABELS[x]) for x in L.get("slugs", []) if x in LABELS]
+            gids = [x for x in gids if x]
+            if ml.upsert(L, gids):
+                ml_done.append(L["id"])
+        print("MailerLite synced: %d of %d" % (len(ml_done), len(todo_ml)))
+
 # ۳) تأیید به وردپرس
-if notified or synced:
+if notified or synced or ml_done:
     try:
-        a = wp("POST", "/leads/ack", json={"notified": notified, "synced": synced})
+        a = wp("POST", "/leads/ack", json={"notified": notified, "synced": synced, "ml": ml_done})
         print("Ack HTTP", a.status_code)
     except requests.exceptions.RequestException as e:
         print("Ack failed:", type(e).__name__)
