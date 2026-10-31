@@ -23,7 +23,7 @@ jobs:
         run: |
           IFACE=$(ip route show default | awk '{print $5}' | head -1)
           sudo ip link set dev "$IFACE" mtu 1200
-      - name: Sync new subscribers
+      - name: Sync new subscribers (Sheet + notification + MailerLite)
         env:
           WP_USER: content-bot
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
@@ -33,4 +33,5 @@ jobs:
           BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
           SHEETS_URL: ${{ secrets.SHEETS_URL }}
           SHEETS_SECRET: ${{ secrets.SHEETS_SECRET }}
+          MAILERLITE_API_KEY: ${{ secrets.MAILERLITE_API_KEY }}
         run: python sync_leads.py
