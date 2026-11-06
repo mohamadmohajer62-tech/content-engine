@@ -113,15 +113,15 @@ def core_html(content):
 
 
 def strip_cta(data):
-    """PDF مقاله‌ها در پایان اسلاید دعوت دارند؛ در PDF نشریه فقط یک پشت جلد می‌ماند."""
+    """اسلاید دعوت پایان PDF مقاله (نشانه‌ی /MM_CTA) در نشریه لازم نیست؛ آخرین صفحه حذف می‌شود."""
     try:
         from pypdf import PdfReader, PdfWriter
-        rd = PdfReader(io.BytesIO(data))
-        meta = rd.metadata or {}
-        if str(meta.get("/MM_CTA", "")) != "1" or len(rd.pages) < 2:
+        r = PdfReader(io.BytesIO(data))
+        meta = r.metadata or {}
+        if str(meta.get("/MM_CTA", "")) != "1" or len(r.pages) < 2:
             return data
         w = PdfWriter()
-        for pg in list(rd.pages)[:-1]:
+        for pg in r.pages[:-1]:
             w.add_page(pg)
         buf = io.BytesIO()
         w.write(buf)
@@ -226,6 +226,35 @@ def toc_html(no, rows, folio):
             % (PAPER, EM1, GOLD, li, b.fa(folio)))
 
 
+def forms_html():
+    """صفحه‌ی «قدم بعدی»: فرم سنجش رشد و فرم درخواست مشاوره (لینک‌ها قابل کلیک و آدرس‌ها چاپ‌شده)."""
+    assess = getattr(g, "ASSESS_URL", "https://mohammadmohajer.ir/growth-assessment/")
+    consult = getattr(g, "CONSULT_URL", "https://mohammadmohajer.ir/request-a-consultation/")
+
+    def card(title, text, label, url, primary):
+        btn = ('background:linear-gradient(115deg,#8f6b1e,#e8cf8a 45%,#c9a24b);color:#2a1c05;border:0' if primary
+               else 'background:transparent;color:#fff;border:.5mm solid %s' % GOLD2)
+        return ('<div style="border:.4mm solid %s;border-radius:5mm;padding:9mm 8mm;margin-bottom:9mm;text-align:center;background:rgba(255,255,255,.05)">'
+                '<div style="color:%s;font-size:19pt;font-weight:800;margin-bottom:3mm">%s</div>'
+                '<div style="color:#e3eedd;font-size:13pt;line-height:2.05;margin-bottom:6mm">%s</div>'
+                '<a href="%s" style="display:inline-block;text-decoration:none;font-weight:900;font-size:14pt;padding:3.2mm 12mm;border-radius:99mm;%s">%s</a>'
+                '<div style="margin-top:4mm;font-size:10.5pt;direction:ltr;color:#cfe0c9">%s</div></div>'
+                % (GOLD2, GOLD2, title, text, b.esc(url), btn, label, b.esc(url.replace("https://", ""))))
+
+    return fill_page(
+        '<div class="pg" style="background:linear-gradient(160deg,%s,%s)"><div style="position:absolute;inset:9mm;border:.9mm solid %s"></div>'
+        '<div style="position:absolute;inset:12mm;border:.3mm solid rgba(232,207,138,.5)"></div>'
+        '<div style="position:absolute;left:24mm;right:24mm;top:30mm;color:#fff">'
+        '<div style="text-align:center;color:%s;font-size:24pt">◆</div>'
+        '<div style="text-align:center;color:%s;font-size:26pt;font-weight:900;line-height:1.6;margin:4mm 0 3mm">قدم بعدی برای کسب‌وکار شما</div>'
+        '<div style="text-align:center;font-size:13.5pt;line-height:2;color:#e3eedd;margin-bottom:11mm">خواندن کافی نیست؛ جای کسب‌وکارتان را روی نقشه‌ی رشد پیدا کنید.</div>%s%s</div></div>'
+        % (EM2, EM0, GOLD2, GOLD2, GOLD2,
+           card("سنجش رایگان رشد کسب‌وکار", "در چند دقیقه ببینید کسب‌وکارتان در مدل ۱۷ مرحله‌ای رشد کجا ایستاده و قدم بعدی‌اش چیست.",
+                "شروع سنجش رشد", assess, True),
+           card("درخواست مشاوره و ارزیابی ظرفیت رشد", "اگر می‌خواهید درباره‌ی ظرفیت رشد کسب‌وکارتان گفت‌وگو کنیم، درخواست خود را ثبت کنید.",
+                "ثبت درخواست مشاوره", consult, False)))
+
+
 def back_html():
     def chip(name, url):
         return ('<a href="%s" style="flex:1;display:block;text-decoration:none;color:#fff;border:.4mm solid %s;border-radius:4mm;padding:5mm 3mm;text-align:center">'
@@ -317,8 +346,9 @@ def build(issue):
     ed = render_pdf(editorial_html(no, editorial, bool(ED_OVERRIDE)))
     toc = render_pdf(toc_html(no, rows, 3))
     back = render_pdf(back_html())
+    forms = render_pdf(forms_html())
 
-    parts = [cover, ed, toc] + [d for _, d, _ in arts] + [back]
+    parts = [cover, ed, toc] + [d for _, d, _ in arts] + [forms, back]
     marks = [("جلد", 0), ("سخن سردبیر", 1), ("فهرست", 2)] + [(t, pg - 1) for t, pg in rows]
     title = "نشریه‌ی هفتگی رشد کسب‌وکار — شماره‌ی %s" % b.fa(no)
     pdf = merge(parts, title, marks)

@@ -15,6 +15,18 @@ HANDLE = os.environ.get("CHANNEL_HANDLE", "@fcmo_mohajer").strip() or "@fcmo_moh
 SIG_NAME = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
 FOLLOW_GAP = int(os.environ.get("FOLLOW_GAP_MIN", "120") or 120) * 60      # فاصله‌ی پیام‌های پیاپی (دقیقه)
 TEST_FOLLOW_ID = os.environ.get("TEST_FOLLOW_ID", "").strip()               # آزمایش: فقط به چت شخصی شما
+ASSESS_URL = getattr(g, "ASSESS_URL", "https://mohammadmohajer.ir/growth-assessment/")
+CONSULT_URL = getattr(g, "CONSULT_URL", "https://mohammadmohajer.ir/request-a-consultation/")
+BTN_ASSESS = "سنجش رایگان رشد کسب‌وکار"
+BTN_CONSULT = "درخواست مشاوره"
+
+
+def pdf_buttons(link, btn):
+    """سه کلید شیشه‌ای پست PDF: مطالعه‌ی آنلاین (ردیف اول)، سنجش رشد و مشاوره (ردیف دوم)."""
+    return [[{"text": btn, "url": link}],
+            [{"text": BTN_ASSESS, "url": ASSESS_URL}, {"text": BTN_CONSULT, "url": CONSULT_URL}]]
+
+
 STAGE_NAMES = {1: "پیام بلند محتوا", 2: "اقدامات امروز", 3: "نسخه‌ی PDF مقاله"}
 
 
@@ -250,51 +262,18 @@ def ask_json(prompt, max_tokens=900):
         return None
 
 
-EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\uFE0F\u200d]+")
-POINT_EMOJI = ["💡", "📊", "🎯", "🚀", "🧭"]
-
-
-def strip_emoji(t):
-    return re.sub(r"\s+", " ", EMOJI_RE.sub("", t or "")).strip()
-
-
 def gen_long(title, text):
-    """پیام بلند ساختاریافته: مقدمه، ۳ تا ۴ نکته، جمع‌بندی (بدون ایموجی داخل متن؛ ایموجی‌ها را خود کد اول سطر می‌گذارد)."""
     for _ in range(2):
         j = ask_json(
             "عنوان مقاله: %s\n\nمتن مقاله:\n%s\n\n"
-            "از همین متن یک پیام بلند و جذاب برای کانال بنویس، با صدای اول‌شخص و صمیمی محمد مهاجر (استراتژیست رشد کسب‌وکار):\n"
-            "- intro: یک تا دو جمله‌ی کنجکاوبرانگیز (حداکثر ۲۵۰ نویسه)\n"
-            "- points: سه یا چهار نکته‌ی کلیدی خودِ مقاله؛ هر نکته یک یا دو جمله‌ی کامل و مستقل (۸۰ تا ۳۵۰ نویسه)\n"
-            "- closing: یک جمله‌ی کوتاه که به مطالعه‌ی مقاله‌ی کامل دعوت کند\n"
-            "قواعد: بدون ایموجی، بدون بولد، بدون هشتگ، بدون لینک، بدون شماره‌گذاری. فقط از محتوای مقاله استفاده کن.\n"
-            'خروجی: {"intro": "...", "points": ["...", "...", "..."], "closing": "..."}' % (title, text[:5500]), 1500)
-        if not j:
-            continue
-        intro = strip_emoji(str(j.get("intro", "")))
-        pts = [strip_emoji(x) for x in (j.get("points") or []) if isinstance(x, str)]
-        pts = [x for x in pts if 60 <= len(x) <= 420][:4]
-        closing = strip_emoji(str(j.get("closing", "")))
-        if 40 <= len(intro) <= 320 and len(pts) >= 3 and 25 <= len(closing) <= 280 and g.latin_ratio(intro + " ".join(pts) + closing) <= 0.12:
-            return {"intro": intro, "points": pts, "closing": closing}
-    return None
-
-
-def compose_long(title, d, link):
-    """چیدمان پاراگرافی: هر بخش یک بلوک جدا با خط خالی؛ ایموجی اول سطر هر نکته."""
-    sp = "✍️ %s\n\n🆔️ %s" % (SIG_NAME, HANDLE)
-    sh = "✍️ <b>%s</b>\n\n🆔️ %s" % (g.esc(SIG_NAME), g.esc(HANDLE))
-    pl = ["📖  " + title, d["intro"]]
-    hl = ["<b>📖  %s</b>" % g.esc(title), g.esc(d["intro"])]
-    for i, t in enumerate(d["points"]):
-        e = POINT_EMOJI[i % len(POINT_EMOJI)]
-        pl.append("%s  %s" % (e, t))
-        hl.append("%s  %s" % (e, g.esc(t)))
-    pl.append("✅  " + d["closing"])
-    hl.append("✅  " + g.esc(d["closing"]))
-    pl += ["🔗  متن کامل مقاله:\n" + link, sp]
-    hl += ["🔗  متن کامل مقاله:\n" + g.esc(link), sh]
-    return "\n\n".join(pl), "\n\n".join(hl)
+            "از همین متن یک پیام بلند و جذاب برای کانال بنویس: ۱۰۰۰ تا ۱۶۰۰ نویسه؛ اول‌شخص و صمیمی با صدای محمد مهاجر (استراتژیست رشد کسب‌وکار)؛ "
+            "شروع با یک جمله‌ی کنجکاوبرانگیز؛ سه یا چهار نکته‌ی کلیدی خودِ مقاله که هرکدام با یک ایموجی ساده شروع شود؛ "
+            "بدون بولد، بدون هشتگ، بدون لینک؛ پایان با یک جمله‌ی دعوت به مطالعه‌ی کامل. فقط از محتوای مقاله استفاده کن.\n"
+            'خروجی: {"text": "..."}' % (title, text[:5500]), 1400)
+        t = str((j or {}).get("text", "")).strip()
+        if 450 <= len(t) <= 3200 and g.latin_ratio(t) <= 0.12:
+            return t
+    return ""
 
 
 def gen_actions(title, text):
@@ -342,7 +321,7 @@ def send_text_all(plain, html, link, title, owner=False):
 
 
 def send_doc_bot_api(name, base, token, chat, data, filename, plain, html, link, btn="مطالعه‌ی آنلاین مقاله"):
-    markup = json.dumps({"inline_keyboard": [[{"text": btn, "url": link}]]})
+    markup = json.dumps({"inline_keyboard": pdf_buttons(link, btn)})
     use_html = (name == "Telegram") and len(html) <= 1000
     cap = html if use_html else plain[:1000]
     for with_markup in (True, False):
@@ -362,13 +341,13 @@ def send_doc_bot_api(name, base, token, chat, data, filename, plain, html, link,
     return False
 
 
-def send_doc_all(data, filename, plain, html, link, title, owner=False, btn="مطالعه‌ی آنلاین مقاله"):
+def send_doc_all(data, filename, plain, html, link, title, owner=False, btn="مطالعه‌ی آنلاین مقاله", eitaa_plain=None):
     res = {}
     for name, base, tok, chat in dest(owner):
         if name == "Eitaa":
             ok = False
             for method in ("sendFile", "sendDocument"):
-                ok, _ = eitaa_call(tok, method, {"chat_id": chat, "caption": plain[:1000], "title": title[:60]},
+                ok, _ = eitaa_call(tok, method, {"chat_id": chat, "caption": (eitaa_plain or plain)[:1000], "title": title[:60]},
                                    {"file": (filename, data, "application/pdf")})
                 if ok:
                     break
@@ -385,10 +364,10 @@ def do_stage(post_id, stage, owner=False):
         return False, "متن مقاله در دسترس نیست"
     title = p["title"]
     if stage == 1:
-        d = gen_long(title, p["text"])
-        if not d:
+        body = gen_long(title, p["text"])
+        if not body:
             return False, "مدل زبانی متن بلند معتبر نساخت"
-        plain, html = compose_long(title, d, p["link"])
+        plain, html = compose("📖 " + title, body, p["link"])
         res = send_text_all(plain, html, p["link"], title, owner)
     elif stage == 2:
         intro, acts = gen_actions(title, p["text"])
@@ -415,7 +394,11 @@ def do_stage(post_id, stage, owner=False):
         plain = "📄 نسخه‌ی PDF مقاله: %s\n\n%s\n\n🔗 مطالعه‌ی آنلاین:\n%s\n\n%s" % (short, body, p["link"], sp)
         html = "<b>📄 نسخه‌ی PDF مقاله: %s</b>\n\n%s\n\n🔗 مطالعه‌ی آنلاین:\n%s\n\n%s" % (g.esc(short), g.esc(body), g.esc(p["link"]), sh)
         fname = (re.sub(r"[^\w\-]+", "-", title).strip("-")[:50] or "article") + ".pdf"
-        res = send_doc_all(data, fname, plain, html, p["link"], title, owner)
+        # ایتا کلید شیشه‌ای ندارد؛ دو لینک داخل متن کپشن می‌آید (قبل از امضا)
+        eitaa_plain = ("📄 نسخه‌ی PDF مقاله: %s\n\n%s\n\n🔗 مطالعه‌ی آنلاین:\n%s\n\n"
+                       "📊 %s:\n%s\n\n💬 %s:\n%s\n\n%s"
+                       % (short, body, p["link"], BTN_ASSESS, ASSESS_URL, BTN_CONSULT, CONSULT_URL, sp))
+        res = send_doc_all(data, fname, plain, html, p["link"], title, owner, eitaa_plain=eitaa_plain)
     line = " | ".join("%s %s" % (k, "✅" if v else "❌") for k, v in res.items()) or "هیچ مقصدی تنظیم نیست"
     ok = any(res.values())
     if not owner:

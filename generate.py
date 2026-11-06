@@ -20,6 +20,8 @@ MAGAZINE_NAME = "مجله رشد کسب‌وکار"
 MAGAZINE_URL = os.environ.get("MAGAZINE_URL", "").strip() or "https://mohammadmohajer.ir/"
 MAGAZINE_CAT_SLUG = os.environ.get("MAGAZINE_CAT_SLUG", "").strip() or "business-growth-magazine"  # اسلاگ دسته‌ی مجله (جدا از آدرس صفحه‌ی مجله)
 AUTHOR_LINE = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
+ASSESS_URL = os.environ.get("ASSESS_URL", "").strip() or "https://mohammadmohajer.ir/growth-assessment/"
+CONSULT_URL = os.environ.get("CONSULT_URL", "").strip() or "https://mohammadmohajer.ir/request-a-consultation/"
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TG_CHAT = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 BALE_TOKEN = os.environ.get("BALE_BOT_TOKEN", "").strip()
@@ -768,6 +770,30 @@ def build_cta():
                 navy=NAVY, mag=MAGAZINE_NAME, m=MUTED, u=esc(MAGAZINE_URL), o=ORANGE)
 
 
+def build_forms():
+    """دو فراخوان پایان مقاله: سنجش رشد (اصلی) و درخواست مشاوره. نشانه‌ی mm-forms-cta برای جلوگیری از تکرار توسط افزونه."""
+    return fill('<div class="mm-forms-cta" dir="rtl" style="margin:2em 0 1em;padding:1.6em 1.5em;border-radius:16px;background:#f4f8ef;border:1px solid @@line@@;border-top:5px solid @@navy@@">'
+                '<div style="font-weight:800;font-size:21px;color:@@navy@@;margin-bottom:.35em;text-align:center">قدم بعدی برای کسب‌وکار شما</div>'
+                '<div style="color:@@m@@;line-height:1.9;margin-bottom:1.1em;text-align:center">اول ببینید کسب‌وکارتان در کدام مرحله‌ی رشد ایستاده است؛ اگر خواستید، با هم روی ظرفیت رشدش گفت‌وگو کنیم.</div>'
+                '<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center">'
+                '<a href="@@a@@" style="display:inline-block;background:@@o@@;color:#fff;padding:.7em 1.5em;border-radius:10px;font-weight:700;text-decoration:none">سنجش رایگان رشد کسب‌وکار</a>'
+                '<a href="@@c@@" style="display:inline-block;background:#fff;color:@@navy@@;padding:.7em 1.5em;border-radius:10px;font-weight:700;text-decoration:none;border:2px solid @@navy@@">درخواست مشاوره و ارزیابی ظرفیت رشد</a>'
+                '</div></div>\n',
+                navy=NAVY, line=LINE, m=MUTED, o=ORANGE, a=esc(ASSESS_URL), c=esc(CONSULT_URL))
+
+
+def pdf_forms():
+    """همان دو فراخوان برای انتهای PDF مقاله."""
+    return fill('<div dir="rtl" style="margin:22px 0 8px;padding:14px 16px;border-radius:12px;background:#f4f8ef;border:1px solid @@line@@;border-top:4px solid @@navy@@;text-align:center;break-inside:avoid">'
+                '<div style="font-weight:800;font-size:14.5pt;color:@@navy@@;margin-bottom:4px">قدم بعدی برای کسب‌وکار شما</div>'
+                '<div style="font-size:11pt;line-height:1.9;color:#4b5563;margin-bottom:10px">ببینید کسب‌وکارتان در کدام مرحله‌ی رشد است و درباره‌ی ظرفیت رشدش با ما گفت‌وگو کنید.</div>'
+                '<a href="@@a@@" style="display:inline-block;background:@@o@@;color:#fff;padding:7px 16px;border-radius:8px;font-weight:700;font-size:11.5pt;margin:3px">سنجش رایگان رشد کسب‌وکار</a>'
+                '<a href="@@c@@" style="display:inline-block;background:#fff;color:@@navy@@;padding:6px 16px;border-radius:8px;font-weight:700;font-size:11.5pt;border:1.5px solid @@navy@@;margin:3px">درخواست مشاوره</a>'
+                '<div style="font-size:9.5pt;color:#64748b;margin-top:8px;direction:ltr">@@al@@ &nbsp;·&nbsp; @@cl@@</div></div>',
+                navy=NAVY, line=LINE, o=ORANGE, a=esc(ASSESS_URL), c=esc(CONSULT_URL),
+                al=esc(ASSESS_URL.replace("https://", "")), cl=esc(CONSULT_URL.replace("https://", "")))
+
+
 # ---------------- اعلان تلگرام و بله ----------------
 def notify(text):
     targets = [("Telegram", "https://api.telegram.org/bot%s/sendMessage", TG_TOKEN, TG_CHAT),
@@ -822,10 +848,10 @@ a { color:@@o@@; text-decoration:none; }
 """.replace("@@o@@", ORANGE).replace("@@navy@@", NAVY)
     return ('<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><style>%s</style></head><body>'
             '<div class="brand">%s<a href="%s">%s</a></div><h1>%s</h1>'
-            '<div class="meta">زمان مطالعه: %s دقیقه</div>%s%s'
+            '<div class="meta">زمان مطالعه: %s دقیقه</div>%s%s%s'
             '<div class="foot"><div>برای مطالعه‌ی مقاله‌های بیشتر به <a href="%s">%s</a> سر بزنید.</div>'
             '<div style="margin-top:4px">%s — <a href="%s">mohammadmohajer.ir</a></div></div></body></html>'
-            % (css, _logo_tag, esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(title), fa(minutes), cover, core,
+            % (css, _logo_tag, esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(title), fa(minutes), cover, core, pdf_forms(),
                esc(MAGAZINE_URL), esc(MAGAZINE_NAME), esc(AUTHOR_LINE), esc(WP)))
 
 
@@ -1250,7 +1276,7 @@ A4: ...""" % (title, kw), 1800)
     hero = build_hero(title, subtitle)
     top_btn = ('<div style="margin:0 0 1.6em;text-align:right">%s</div>' % btn) if btn else ""
     end_btn = ('<div style="margin:1.6em 0;text-align:center">%s</div>' % btn) if btn else ""
-    full = '<div class="mm-article">' + GRID_STYLE + hero + build_toc(toc_items) + top_btn + core + end_btn + build_cta() + "</div>"
+    full = '<div class="mm-article">' + GRID_STYLE + hero + build_toc(toc_items) + top_btn + core + end_btn + build_forms() + build_cta() + "</div>"
 
     focus = ", ".join([kw] + [x.strip() for x in kw2.split("،") if x.strip()][:2])
     print("Content size: %d KB" % (len(full.encode("utf-8")) // 1024))
