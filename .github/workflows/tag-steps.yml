@@ -1,0 +1,55 @@
+name: tag-steps
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "calendar = مقاله‌های تقویم از روی steps.csv ، ai = سایر مقاله‌های منتشرشده با هوش مصنوعی"
+        default: "calendar"
+        type: choice
+        options:
+          - calendar
+          - ai
+      dry_run:
+        description: "1 = فقط گزارش (چیزی تغییر نمی‌کند) ، 0 = اعمال برچسب‌ها"
+        default: "1"
+      limit:
+        description: "حداکثر تعداد مقاله در حالت ai"
+        default: "40"
+
+permissions:
+  contents: read
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Lower MTU
+        run: |
+          IFACE=$(ip route show default | awk '/default/ {print $5}' | head -n1)
+          sudo ip link set dev "$IFACE" mtu 1200
+
+      - name: Install
+        run: pip install requests
+
+      - name: Tag articles by model step
+        env:
+          WP_USER: content-bot
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          GAPGPT_API_KEY: ${{ secrets.GAPGPT_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+          MODE: ${{ github.event.inputs.mode }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          LIMIT: ${{ github.event.inputs.limit }}
+        run: python tag_steps.py
