@@ -104,8 +104,9 @@ def tag_names(ids):
         return []
     try:
         r = g.wp("GET", g.WP + "/wp-json/wp/v2/tags", tries=3, auth=g.AUTH,
-                 params={"include": ",".join(str(i) for i in ids[:6]), "per_page": 10, "_fields": "name"})
-        return [t["name"] for t in r.json()]
+                 params={"include": ",".join(str(i) for i in ids[:14]), "per_page": 20, "_fields": "name"})
+        # برچسب‌های فنی step-1 تا step-17 هشتگ نشوند
+        return [t["name"] for t in r.json() if not re.match(r"^step-\d+$", t["name"].strip())][:6]
     except Exception:
         return []
 
@@ -262,15 +263,56 @@ def ask_json(prompt, max_tokens=900):
         return None
 
 
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2190-\u21FF\u2300-\u23FF\u2460-\u27BF\u2900-\u297F\u2B00-\u2BFF\uFE0E\uFE0F\u200d]")
+POINT_EMOJIS = ["🔹", "📌", "💡", "🎯", "🧭"]
+
+
+def strip_emoji(t):
+    """همه‌ی ایموجی‌ها از متن حذف می‌شود؛ ایموجی فقط توسط کد و فقط اول پاراگراف نکته‌ها گذاشته می‌شود."""
+    t = EMOJI_RE.sub("", str(t or ""))
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return re.sub(r"\s+([.،؛:!؟?])", r"\1", t).strip()
+
+
+def build_long(intro, points, outro):
+    """چیدمان قطعی پیام بلند: مقدمه، هر نکته در پاراگراف جدا با ایموجی اول سطر، جمع‌بندی؛ بین همه خط خالی."""
+    paras = [strip_emoji(intro)]
+    for i, pt in enumerate(points):
+        paras.append("%s %s" % (POINT_EMOJIS[i % len(POINT_EMOJIS)], strip_emoji(pt)))
+    paras.append(strip_emoji(outro))
+    return "\n\n".join(x for x in paras if x)
+
+
+def normalize_long(text):
+    """اگر مدل به‌جای ساختار، یک متن پیوسته داد: متن را به جمله‌ها بشکن و همان چیدمان قطعی را بساز."""
+    t = str(text or "").replace("\r", "").strip()
+    sents = [strip_emoji(x) for x in re.split(r"(?<=[.!؟?])\s+|\n+", t) if strip_emoji(x)]
+    if len(sents) < 5:
+        return ""
+    intro, outro, mid = sents[0], sents[-1], sents[1:-1]
+    n = min(4, max(3, len(mid) // 2)) if len(mid) >= 6 else min(4, len(mid))
+    size = -(-len(mid) // n)            # بالا گرد
+    points = [" ".join(mid[i:i + size]) for i in range(0, len(mid), size)][:4]
+    return build_long(intro, points, outro)
+
+
 def gen_long(title, text):
-    for _ in range(2):
+    for _ in range(3):
         j = ask_json(
             "عنوان مقاله: %s\n\nمتن مقاله:\n%s\n\n"
-            "از همین متن یک پیام بلند و جذاب برای کانال بنویس: ۱۰۰۰ تا ۱۶۰۰ نویسه؛ اول‌شخص و صمیمی با صدای محمد مهاجر (استراتژیست رشد کسب‌وکار)؛ "
-            "شروع با یک جمله‌ی کنجکاوبرانگیز؛ سه یا چهار نکته‌ی کلیدی خودِ مقاله که هرکدام با یک ایموجی ساده شروع شود؛ "
-            "بدون بولد، بدون هشتگ، بدون لینک؛ پایان با یک جمله‌ی دعوت به مطالعه‌ی کامل. فقط از محتوای مقاله استفاده کن.\n"
-            'خروجی: {"text": "..."}' % (title, text[:5500]), 1400)
-        t = str((j or {}).get("text", "")).strip()
+            "از همین متن یک پیام بلند و جذاب برای کانال بنویس؛ اول‌شخص و صمیمی با صدای محمد مهاجر (استراتژیست رشد کسب‌وکار). "
+            "خروجی سه بخش جدا باشد: intro یک پاراگراف کوتاه با یک جمله‌ی کنجکاوبرانگیز (۶۰ تا ۲۵۰ نویسه)؛ "
+            "points فهرستی از ۳ یا ۴ نکته‌ی کلیدی خودِ مقاله، هر نکته یک پاراگراف مستقل ۱۲۰ تا ۴۰۰ نویسه؛ "
+            "outro یک جمله‌ی دعوت به مطالعه‌ی کامل مقاله (۳۰ تا ۲۰۰ نویسه). "
+            "در هیچ‌کدام ایموجی، بولد، هشتگ، شماره‌گذاری یا لینک ننویس؛ ایموجی‌ها را خود سیستم می‌گذارد. فقط از محتوای مقاله استفاده کن.\n"
+            'خروجی: {"intro": "...", "points": ["...", "...", "..."], "outro": "..."}' % (title, text[:5500]), 1500)
+        if not j:
+            continue
+        if isinstance(j.get("points"), list) and j.get("intro"):
+            pts = [str(x).strip() for x in j["points"] if isinstance(x, str) and len(strip_emoji(x)) >= 60][:4]
+            t = build_long(j.get("intro", ""), pts, j.get("outro", "")) if len(pts) >= 3 else ""
+        else:                                  # قالب قدیمی {"text": "..."}
+            t = normalize_long(j.get("text", ""))
         if 450 <= len(t) <= 3200 and g.latin_ratio(t) <= 0.12:
             return t
     return ""
@@ -294,6 +336,7 @@ def gen_actions(title, text):
 
 
 def compose(head, body, link):
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
     sp = "✍️ %s\n\n🆔️ %s" % (SIG_NAME, HANDLE)
     sh = "✍️ <b>%s</b>\n\n🆔️ %s" % (g.esc(SIG_NAME), g.esc(HANDLE))
     plain = "%s\n\n%s\n\n🔗 متن کامل مقاله:\n%s\n\n%s" % (head, body, link, sp)

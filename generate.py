@@ -794,6 +794,56 @@ def pdf_forms():
                 al=esc(ASSESS_URL.replace("https://", "")), cl=esc(CONSULT_URL.replace("https://", "")))
 
 
+# ---------------- برچسب گام‌های مدل (step-1 تا step-17) ----------------
+def load_steps():
+    """نگاشت شناسه‌ی ردیف تقویم ← گام‌های مدل، از steps.csv (ستون id و steps مثل 7 یا 7|8)."""
+    m = {}
+    try:
+        with open("steps.csv", encoding="utf-8-sig", newline="") as f:
+            for r in csv.DictReader(f):
+                m[str(r.get("id", "")).strip()] = str(r.get("steps", "")).strip()
+    except FileNotFoundError:
+        print("steps.csv not found; step tags skipped.")
+    return m
+
+
+def parse_steps(v):
+    out = []
+    for x in re.findall(r"\d+", str(v or "")):
+        n = int(x)
+        if 1 <= n <= 17 and n not in out:
+            out.append(n)
+    return out
+
+
+def ensure_step_tag(n):
+    slug = "step-%d" % n
+    try:
+        r = wp("GET", WP + "/wp-json/wp/v2/tags", tries=2, auth=AUTH, params={"slug": slug, "_fields": "id"}, timeout=60)
+        if r.status_code == 200 and r.json():
+            return r.json()[0]["id"]
+        r = wp("POST", WP + "/wp-json/wp/v2/tags", tries=2, auth=AUTH, json={"name": slug, "slug": slug}, timeout=60)
+        if r.status_code in (200, 201):
+            return r.json()["id"]
+        if r.status_code == 400 and "term_id" in r.text:
+            return r.json()["data"]["term_id"]
+    except Exception as e:
+        print("Step tag %s failed (%s); skipping." % (slug, type(e).__name__))
+    return None
+
+
+def step_tag_ids(row):
+    """شناسه‌ی برچسب‌های گام برای یک ردیف تقویم (ستون steps در تقویم اولویت دارد، وگرنه steps.csv)."""
+    v = (row.get("steps") or "").strip() or load_steps().get(str(row.get("id", "")).strip(), "")
+    ids = []
+    for n in parse_steps(v):
+        t = ensure_step_tag(n)
+        if t:
+            ids.append(t)
+    print("Step tags:", parse_steps(v), "->", ids)
+    return ids
+
+
 # ---------------- اعلان تلگرام و بله ----------------
 def notify(text):
     targets = [("Telegram", "https://api.telegram.org/bot%s/sendMessage", TG_TOKEN, TG_CHAT),
@@ -1225,6 +1275,10 @@ A4: ...""" % (title, kw), 1800)
                 tag_ids.append(tr.json()["data"]["term_id"])
         except Exception as e:
             print("Tag '%s' failed (%s); skipping." % (tg, type(e).__name__))
+
+    for sid in step_tag_ids(row):
+        if sid not in tag_ids:
+            tag_ids.append(sid)
 
     # تصویر شاخص
     featured_id, cover_b64, cover_src = None, "", "none"
