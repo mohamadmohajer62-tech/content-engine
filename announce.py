@@ -14,6 +14,7 @@ BRAND = "مجله رشد کسب‌وکار"
 HANDLE = os.environ.get("CHANNEL_HANDLE", "@fcmo_mohajer").strip() or "@fcmo_mohajer"
 SIG_NAME = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
 FOLLOW_GAP = int(os.environ.get("FOLLOW_GAP_MIN", "120") or 120) * 60      # فاصله‌ی پیام‌های پیاپی (دقیقه)
+FOLLOW_MIN_GAP = int(os.environ.get("FOLLOW_MIN_GAP_MIN", "45") or 45) * 60   # حداقل فاصله بین دو پیام پیاپی، حتی اگر زمان‌بندی عقب افتاده باشد
 TEST_FOLLOW_ID = os.environ.get("TEST_FOLLOW_ID", "").strip()               # آزمایش: فقط به چت شخصی شما
 ASSESS_URL = getattr(g, "ASSESS_URL", "https://mohammadmohajer.ir/growth-assessment/")
 CONSULT_URL = getattr(g, "CONSULT_URL", "https://mohammadmohajer.ir/request-a-consultation/")
@@ -157,53 +158,64 @@ def hint(err):
     return ""
 
 
+def small_jpeg(jpg):
+    """نسخه‌ی کوچک‌تر عکس برای وقتی که آپلود نسخه‌ی اصلی در سرور پیام‌رسان خطا می‌دهد."""
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(jpg)).convert("RGB")
+        im.thumbnail((1100, 1100))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=78, optimize=True)
+        return buf.getvalue()
+    except Exception as e:
+        print("small_jpeg failed:", type(e).__name__)
+        return None
+
+
 def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link, photo_url=""):
-    """تلگرام و بله (API سازگار): عکس + کپشن + دکمه‌ی لینک. خروجی: (موفق؟، متن خطا)"""
+    """تلگرام و بله: عکس + کپشن + دکمه‌ی لینک. زنجیره‌ی جایگزین: آپلود عکس ← آپلود نسخه‌ی کوچک ← ارسال با آدرس عکس ← فقط متن.
+    خروجی: (موفق؟، متن خطا یا توضیح)"""
     markup = json.dumps({"inline_keyboard": [[{"text": "مطالعه‌ی مقاله", "url": link}]]})
     use_html = (name == "Telegram")
     cap = html_cap if use_html else plain_cap
-    last_err = ""
-    for with_markup in (True, False):
-        d = {"chat_id": chat}
-        if with_markup:
-            d["reply_markup"] = markup
-        if jpg:
-            d["caption"] = cap
+    plans = []
+    if jpg:
+        plans.append(("sendPhoto", "upload", jpg))
+        sm = small_jpeg(jpg)
+        if sm and len(sm) < len(jpg):
+            plans.append(("sendPhoto", "upload-small", sm))
+    if photo_url:
+        plans.append(("sendPhoto", "url", photo_url))
+    plans.append(("sendMessage", "text", None))
+    last_err, had_image = "", bool(jpg or photo_url)
+    for method, kind, payload in plans:
+        for with_markup in (True, False):
+            d = {"chat_id": chat}
+            files = None
+            if with_markup:
+                d["reply_markup"] = markup
+            if method == "sendPhoto":
+                d["caption"] = cap
+                if kind == "url":
+                    d["photo"] = payload
+                else:
+                    files = {"photo": ("cover.jpg", payload, "image/jpeg")}
+            else:
+                d["text"] = cap
             if use_html:
                 d["parse_mode"] = "HTML"
-            files, method = {"photo": ("cover.jpg", jpg, "image/jpeg")}, "sendPhoto"
-        elif photo_url:
-            d["caption"] = cap
-            d["photo"] = photo_url
-            if use_html:
-                d["parse_mode"] = "HTML"
-            files, method = None, "sendPhoto"
-        else:
-            d["text"] = cap
-            if use_html:
-                d["parse_mode"] = "HTML"
-            files, method = None, "sendMessage"
-        try:
-            r = requests.post((base % token) + method, data=d, files=files, timeout=90)
-        except Exception as e:
-            last_err = type(e).__name__
-            print("%s error: %s" % (name, last_err))
-            continue
-        print("%s %s (markup=%s): %s %s" % (name, method, with_markup, r.status_code, "" if r.status_code == 200 else r.text[:200]))
-        if r.status_code == 200:
-            return True, ""
-        last_err = r.text[:200]
-    if photo_url and not jpg:
-        d = {"chat_id": chat, "text": cap}
-        if use_html:
-            d["parse_mode"] = "HTML"
-        try:
-            r = requests.post((base % token) + "sendMessage", data=d, timeout=60)
-            print("%s sendMessage (no image): %s" % (name, r.status_code))
+            try:
+                r = requests.post((base % token) + method, data=d, files=files, timeout=90)
+            except Exception as e:
+                last_err = type(e).__name__
+                print("%s %s/%s error: %s" % (name, method, kind, last_err))
+                continue
+            print("%s %s/%s (markup=%s): %s %s" % (name, method, kind, with_markup, r.status_code, "" if r.status_code == 200 else r.text[:200]))
             if r.status_code == 200:
-                return True, "(بدون تصویر)"
-        except Exception:
-            pass
+                return True, ("(بدون تصویر؛ آپلود عکس در %s خطا داد)" % name) if (kind == "text" and had_image) else ""
+            last_err = r.text[:200]
+        if kind.startswith("upload"):
+            time.sleep(4)          # خطای ۵۰۰ آپلود معمولاً موقتی است؛ کمی صبر قبل از روش بعدی
     return False, last_err
 
 
@@ -381,6 +393,17 @@ def send_doc_bot_api(name, base, token, chat, data, filename, plain, html, link,
         print("%s sendDocument (markup=%s): %s %s" % (name, with_markup, r.status_code, "" if r.status_code == 200 else r.text[:200]))
         if r.status_code == 200:
             return True
+    # فایل آپلود نشد: پیام متنی با همان کلیدهای شیشه‌ای، تا مخاطب بی‌خبر نماند
+    try:
+        d = {"chat_id": chat, "text": cap + "\n\n(فایل PDF در این پیام‌رسان آپلود نشد؛ از لینک مقاله استفاده کنید.)", "reply_markup": markup}
+        if use_html:
+            d["parse_mode"] = "HTML"
+        r = requests.post((base % token) + "sendMessage", data=d, timeout=60)
+        print("%s sendMessage (no file): %s" % (name, r.status_code))
+        if r.status_code == 200:
+            return True
+    except Exception as e:
+        print("%s sendMessage fallback error: %s" % (name, type(e).__name__))
     return False
 
 
@@ -400,7 +423,7 @@ def send_doc_all(data, filename, plain, html, link, title, owner=False, btn="م�
     return res
 
 
-def do_stage(post_id, stage, owner=False):
+def do_stage(post_id, stage, owner=False, late=0):
     """یک مرحله از سه پیام پیاپی. خروجی: (انجام شد یا رها شد؟، خلاصه‌ی نتیجه)."""
     p = post_full(post_id)
     if not p or not p["text"]:
@@ -445,7 +468,8 @@ def do_stage(post_id, stage, owner=False):
     line = " | ".join("%s %s" % (k, "✅" if v else "❌") for k, v in res.items()) or "هیچ مقصدی تنظیم نیست"
     ok = any(res.values())
     if not owner:
-        g.notify("📨 %s ارسال شد:\n%s\n\n%s" % (STAGE_NAMES[stage], title, line))
+        g.notify("📨 %s ارسال شد:\n%s\n\n%s%s" % (STAGE_NAMES[stage], title, line,
+                 ("\n⏱ تأخیر نسبت به زمان‌بندی: %d دقیقه" % late) if late >= 10 else ""))
     return ok, line
 
 
@@ -457,12 +481,16 @@ def process_follow(st):
             if now - f.get("t0", now) > 3 * 86400:
                 del st["follow"][key]
             continue
-        if now < f.get("last", now) + FOLLOW_GAP or done_runs >= 3:
-            continue
         stage = f.get("done", 0) + 1
-        ok, info = do_stage(int(key), stage)
+        # زمان‌بندی از لحظه‌ی اعلان (t0) حساب می‌شود، نه از ارسال قبلی؛ پس تأخیر اجراها روی هم جمع نمی‌شود.
+        planned = f.get("t0", now) + stage * FOLLOW_GAP
+        due = max(planned, f.get("last", now) + FOLLOW_MIN_GAP)
+        if now < due or done_runs >= 3:
+            continue
+        late = (now - planned) // 60
+        ok, info = do_stage(int(key), stage, late=late)
         done_runs += 1
-        print("Follow-up %s stage %d: %s (%s)" % (key, stage, "OK" if ok else "FAIL", info))
+        print("Follow-up %s stage %d: %s (%s) | late %d min" % (key, stage, "OK" if ok else "FAIL", info, late))
         if ok:
             f["done"], f["last"], f["tries"] = stage, now, 0
         else:
@@ -482,6 +510,55 @@ def run_test(post_id):
     g.notify("🧪 آزمایش سه پیام پیاپی برای مقاله‌ی %s تمام شد (به کانال‌ها چیزی ارسال نشد)." % post_id)
 
 
+def log_run(st):
+    """ثبت زمان هر اجرای زمان‌بندی‌شده؛ اگر گیت‌هاب اجراها را دیر می‌رساند (میانگین فاصله بیش از ۳۵ دقیقه به‌جای ۱۵)، یک‌بار در ۱۲ ساعت هشدار می‌دهد."""
+    if os.environ.get("GITHUB_EVENT_NAME", "") != "schedule":
+        return
+    now = int(time.time())
+    runs = (st.get("runs") or [])[-11:] + [now]
+    st["runs"] = runs
+    if len(runs) >= 6:
+        gaps = [(b - a) / 60 for a, b in zip(runs, runs[1:])]
+        avg, worst = sum(gaps) / len(gaps), max(gaps)
+        print("Scheduler check: average gap %.0f min, worst %.0f min over last %d runs (expected 15)." % (avg, worst, len(gaps)))
+        if avg > 35 and now - st.get("warn_t", 0) > 12 * 3600:
+            st["warn_t"] = now
+            g.notify("⏱ زمان‌بندی گیت‌هاب دیر می‌رسد: در %d اجرای اخیر فاصله‌ی دو اجرای announce به‌طور میانگین %.0f دقیقه "
+                     "(بیشترین %.0f دقیقه) بوده، نه ۱۵ دقیقه. ارسال‌ها به همین اندازه عقب می‌افتند." % (len(gaps), avg, worst))
+
+
+def retry_missed(st, posts):
+    """مقصدهایی که در اعلان اولیه خطا دادند (مثلاً بله) در اجراهای بعدی، فقط برای همان مقصد، دوباره امتحان می‌شوند."""
+    by_id = {str(p["id"]): p for p in posts}
+    for key, m in list(st.get("missed", {}).items()):
+        p = by_id.get(key)
+        if not p:
+            del st["missed"][key]
+            continue
+        names = m.get("names", [])
+        jpg, photo_url = cover_bytes(p["id"], p["media"])
+        plain_cap, html_cap = build_captions(p, tag_names(p["tags"]))
+        for name in list(names):
+            if name == "Bale" and BALE_TOKEN and BALE_CH:
+                ok, note = send_bot_api("Bale", "https://tapi.bale.ai/bot%s/", BALE_TOKEN, BALE_CH, jpg, plain_cap, html_cap, p["link"], photo_url)
+            elif name == "Telegram" and TG_TOKEN and TG_CH:
+                ok, note = send_bot_api("Telegram", "https://api.telegram.org/bot%s/", TG_TOKEN, TG_CH, jpg, plain_cap, html_cap, p["link"], photo_url)
+            elif name == "Eitaa" and EITAA_TOKEN and EITAA_CH:
+                ok, note = send_eitaa(EITAA_TOKEN, EITAA_CH, jpg, plain_cap, p["title"])
+            else:
+                ok, note = True, ""
+            if ok:
+                names.remove(name)
+                g.notify("🔁 ارسال دوباره‌ی مقاله در %s انجام شد:\n%s" % (name, p["title"]))
+        m["tries"] = m.get("tries", 0) + 1
+        if not names:
+            del st["missed"][key]
+        elif m["tries"] >= 4:
+            g.notify("⚠️ مقاله‌ی «%s» بعد از ۴ تلاش دوباره در این مقصدها ارسال نشد: %s" % (p["title"], "، ".join(names)))
+            del st["missed"][key]
+        save_state(st)
+
+
 def main():
     if TEST_FOLLOW_ID.isdigit():
         return run_test(int(TEST_FOLLOW_ID))
@@ -490,6 +567,8 @@ def main():
         sys.exit("هیچ کانالی تنظیم نشده است (Secretهای کانال را بسازید).")
     posts = fetch_recent()
     st = load_state()
+    if st is not None:
+        log_run(st)
     if st is None:
         st = {"ids": [p["id"] for p in posts], "attempts": {}}
         save_state(st)
@@ -520,13 +599,17 @@ def main():
         st["attempts"][key] = st["attempts"].get(key, 0) + 1
         if any(res.values()) or st["attempts"][key] >= 3:
             st["ids"].append(p["id"])
+        failed = [k for k, v in res.items() if not v]
+        if failed and any(res.values()):
+            st.setdefault("missed", {})[key] = {"names": failed, "tries": 0}
         if any(res.values()):
             st.setdefault("follow", {})[key] = {"t0": int(time.time()), "last": int(time.time()), "done": 0, "tries": 0}
         line = " | ".join("%s %s" % (k, "✅" if v else "❌") for k, v in res.items())
-        details = "\n".join("• %s: %s" % (k, (hint(errs[k]) or errs[k][:120])) for k, v in res.items() if not v)
+        details = "\n".join("• %s: %s" % (k, (hint(errs[k]) or errs[k][:120])) for k, v in res.items() if (not v) or errs.get(k))
         print("Announced post %s: %s" % (p["id"], line))
         g.notify("📣 اعلان مقاله در کانال‌ها:\n%s\n\n%s%s" % (p["title"], line, ("\n\n" + details) if details else ""))
         save_state(st)
+    retry_missed(st, posts)
     process_follow(st)
     save_state(st)
 
