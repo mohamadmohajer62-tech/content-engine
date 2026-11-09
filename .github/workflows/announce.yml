@@ -10,8 +10,8 @@ on:
         required: false
         default: ""
   schedule:
-    # هر ۱۵ دقیقه (برای فاصله‌ی دقیق‌تر پیام‌های پیاپی)
-    - cron: "*/15 * * * *"
+    # هر ۱۵ دقیقه، ولی روی دقیقه‌های غیرگرد: گیت‌هاب اجراهای دقیقه‌ی ۰ و ۱۵ و ۳۰ و ۴۵ را بیشتر عقب می‌اندازد
+    - cron: "7,22,37,52 * * * *"
 
 permissions:
   contents: write
@@ -57,4 +57,5 @@ jobs:
           git config user.name "content-bot"
           git config user.email "bot@users.noreply.github.com"
           git add announced.json
-          git diff --cached --quiet || (git commit -m "update announced" && git push)
+          # اگر workflow دیگری هم‌زمان در مخزن نوشته باشد، push بدون rebase رد می‌شود و وضعیت ذخیره نمی‌شود (پیام تکراری می‌رود)
+          git diff --cached --quiet || (git commit -m "update announced" && (git push || (git pull --rebase -q && git push)))
