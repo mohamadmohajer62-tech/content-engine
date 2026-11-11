@@ -1,4 +1,5 @@
 import os, re, io, json, sys, time
+import datetime as dt
 import requests
 import generate as g
 
@@ -14,7 +15,7 @@ BRAND = "مجله رشد کسب‌وکار"
 HANDLE = os.environ.get("CHANNEL_HANDLE", "@fcmo_mohajer").strip() or "@fcmo_mohajer"
 SIG_NAME = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
 FOLLOW_GAP = int(os.environ.get("FOLLOW_GAP_MIN", "120") or 120) * 60      # فاصله‌ی پیام‌های پیاپی (دقیقه)
-FOLLOW_MIN_GAP = int(os.environ.get("FOLLOW_MIN_GAP_MIN", "45") or 45) * 60   # حداقل فاصله بین دو پیام پیاپی، حتی اگر زمان‌بندی عقب افتاده باشد
+FOLLOW_MIN_GAP = int(os.environ.get("FOLLOW_MIN_GAP_MIN", "110") or 110) * 60   # حداقل فاصله بین دو پیام پیاپی، حتی اگر زمان‌بندی عقب افتاده باشد
 TEST_FOLLOW_ID = os.environ.get("TEST_FOLLOW_ID", "").strip()               # آزمایش: فقط به چت شخصی شما
 ASSESS_URL = getattr(g, "ASSESS_URL", "https://mohammadmohajer.ir/growth-assessment/")
 CONSULT_URL = getattr(g, "CONSULT_URL", "https://mohammadmohajer.ir/request-a-consultation/")
@@ -510,9 +511,27 @@ def run_test(post_id):
     g.notify("🧪 آزمایش سه پیام پیاپی برای مقاله‌ی %s تمام شد (به کانال‌ها چیزی ارسال نشد)." % post_id)
 
 
+IR_TZ = dt.timezone(dt.timedelta(hours=3, minutes=30))        # وقت تهران (ایران ساعت تابستانی ندارد)
+QUIET_START = os.environ.get("QUIET_START", "22:00").strip()    # از این ساعت تا QUIET_END هیچ پیامی به کانال‌ها نمی‌رود
+QUIET_END = os.environ.get("QUIET_END", "08:00").strip()
+
+
+def _hm(t):
+    h, m = t.split(":")
+    return int(h) * 60 + int(m)
+
+
+def in_quiet_hours(now=None):
+    """آیا الان (به وقت تهران) در ساعت سکوت هستیم؟ پیام‌های معوق در ساعت سکوت نگه داشته و صبح ارسال می‌شوند."""
+    now = now or dt.datetime.now(IR_TZ)
+    cur = now.hour * 60 + now.minute
+    a, b = _hm(QUIET_START), _hm(QUIET_END)
+    return (a <= cur < b) if a < b else (cur >= a or cur < b)
+
+
 def log_run(st):
     """ثبت زمان هر اجرای زمان‌بندی‌شده؛ اگر گیت‌هاب اجراها را دیر می‌رساند (میانگین فاصله بیش از ۳۵ دقیقه به‌جای ۱۵)، یک‌بار در ۱۲ ساعت هشدار می‌دهد."""
-    if os.environ.get("GITHUB_EVENT_NAME", "") != "schedule":
+    if os.environ.get("GITHUB_EVENT_NAME", "") not in ("schedule", "workflow_dispatch") or os.environ.get("FORCE_IDS", "").strip() or os.environ.get("TEST_FOLLOW_ID", "").strip():
         return
     now = int(time.time())
     runs = (st.get("runs") or [])[-11:] + [now]
@@ -523,7 +542,7 @@ def log_run(st):
         print("Scheduler check: average gap %.0f min, worst %.0f min over last %d runs (expected 15)." % (avg, worst, len(gaps)))
         if avg > 35 and now - st.get("warn_t", 0) > 12 * 3600:
             st["warn_t"] = now
-            g.notify("⏱ زمان‌بندی گیت‌هاب دیر می‌رسد: در %d اجرای اخیر فاصله‌ی دو اجرای announce به‌طور میانگین %.0f دقیقه "
+            g.notify("⏱ اجراهای announce دیر می‌رسند: در %d اجرای اخیر فاصله‌ی دو اجرای announce به‌طور میانگین %.0f دقیقه "
                      "(بیشترین %.0f دقیقه) بوده، نه ۱۵ دقیقه. ارسال‌ها به همین اندازه عقب می‌افتند." % (len(gaps), avg, worst))
 
 
@@ -576,6 +595,10 @@ def main():
         g.notify("📣 اعلان خودکار کانال‌ها فعال شد. %d مقاله‌ی موجود علامت خورد و از این به بعد هر مقاله‌ی تازه‌منتشرشده ارسال می‌شود." % len(posts))
         return
     force = {int(x) for x in re.findall(r"\d+", os.environ.get("FORCE_IDS", ""))}
+    if in_quiet_hours() and not force:
+        print("Quiet hours (%s–%s Tehran): nothing sent; pending posts and follow-ups wait for the morning." % (QUIET_START, QUIET_END))
+        save_state(st)
+        return
     new = [p for p in posts if p["id"] not in st["ids"] or p["id"] in force]
     for p in new:
         if p["id"] in force:
