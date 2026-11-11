@@ -1,9 +1,8 @@
 name: generate-article
 on:
+  # اجرای روزانه از بیرون (cron-job.org) و با workflow_dispatch انجام می‌شود؛
+  # cron خود گیت‌هاب عمداً حذف شد تا هم دیر نرسد و هم دو مقاله ساخته نشود.
   workflow_dispatch:
-  schedule:
-    # 03:30 UTC = 07:00 به وقت تهران (UTC+3:30)
-    - cron: "30 3 * * *"
 
 permissions:
   contents: write
@@ -57,4 +56,4 @@ jobs:
           git add calendar.csv
           if [ -d covers ]; then git add covers; fi
           if [ -d pending ]; then git add -A pending; fi
-          git diff --cached --quiet || (git commit -m "update calendar" && git push)
+          git diff --cached --quiet || (git commit -m "update calendar" && (git push || (git pull --rebase -q && git push)))
