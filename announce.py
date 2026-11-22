@@ -14,11 +14,12 @@ MAX_PER_RUN = 3
 BRAND = "مجله رشد کسب‌وکار"
 HANDLE = os.environ.get("CHANNEL_HANDLE", "@fcmo_mohajer").strip() or "@fcmo_mohajer"
 SIG_NAME = "محمد مهاجر | استراتژیست رشد کسب‌وکار"
-FOLLOW_GAP = int(os.environ.get("FOLLOW_GAP_MIN", "120") or 120) * 60      # فاصله‌ی پیام‌های پیاپی (دقیقه)
-FOLLOW_MIN_GAP = int(os.environ.get("FOLLOW_MIN_GAP_MIN", "110") or 110) * 60   # حداقل فاصله بین دو پیام پیاپی، حتی اگر زمان‌بندی عقب افتاده باشد
+FOLLOW_GAP = int(os.environ.get("FOLLOW_GAP_MIN", "180") or 180) * 60      # فاصله‌ی پیام‌های پیاپی (دقیقه)
+FOLLOW_MIN_GAP = int(os.environ.get("FOLLOW_MIN_GAP_MIN", "170") or 170) * 60   # حداقل فاصله بین دو پیام پیاپی، حتی اگر زمان‌بندی عقب افتاده باشد
 TEST_FOLLOW_ID = os.environ.get("TEST_FOLLOW_ID", "").strip()               # آزمایش: فقط به چت شخصی شما
 ASSESS_URL = getattr(g, "ASSESS_URL", "https://mohammadmohajer.ir/growth-assessment/")
 CONSULT_URL = getattr(g, "CONSULT_URL", "https://mohammadmohajer.ir/request-a-consultation/")
+PDF_BUTTONS = os.environ.get("PDF_BUTTONS", "0").strip() == "1"     # ۱ = سه کلید شیشه‌ای زیر پیام PDF مقاله (پیش‌فرض: بدون کلید)
 BTN_ASSESS = "سنجش رایگان رشد کسب‌وکار"
 BTN_CONSULT = "درخواست مشاوره"
 
@@ -173,10 +174,10 @@ def small_jpeg(jpg):
         return None
 
 
-def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link, photo_url=""):
+def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link, photo_url="", button=True):
     """تلگرام و بله: عکس + کپشن + دکمه‌ی لینک. زنجیره‌ی جایگزین: آپلود عکس ← آپلود نسخه‌ی کوچک ← ارسال با آدرس عکس ← فقط متن.
     خروجی: (موفق؟، متن خطا یا توضیح)"""
-    markup = json.dumps({"inline_keyboard": [[{"text": "مطالعه‌ی مقاله", "url": link}]]})
+    markup = json.dumps({"inline_keyboard": [[{"text": "مطالعه‌ی مقاله", "url": link}]]}) if button else None
     use_html = (name == "Telegram")
     cap = html_cap if use_html else plain_cap
     plans = []
@@ -190,7 +191,7 @@ def send_bot_api(name, base, token, chat, jpg, plain_cap, html_cap, link, photo_
     plans.append(("sendMessage", "text", None))
     last_err, had_image = "", bool(jpg or photo_url)
     for method, kind, payload in plans:
-        for with_markup in (True, False):
+        for with_markup in ((True, False) if markup else (False,)):
             d = {"chat_id": chat}
             files = None
             if with_markup:
@@ -352,8 +353,9 @@ def compose(head, body, link):
     body = re.sub(r"\n{3,}", "\n\n", body).strip()
     sp = "✍️ %s\n\n🆔️ %s" % (SIG_NAME, HANDLE)
     sh = "✍️ <b>%s</b>\n\n🆔️ %s" % (g.esc(SIG_NAME), g.esc(HANDLE))
-    plain = "%s\n\n%s\n\n🔗 متن کامل مقاله:\n%s\n\n%s" % (head, body, link, sp)
-    html = "<b>%s</b>\n\n%s\n\n🔗 متن کامل مقاله:\n%s\n\n%s" % (g.esc(head), g.esc(body), g.esc(link), sh)
+    # پیام‌های متنی (بلند و اقدامات امروز) عمداً لینک مقاله ندارند
+    plain = "%s\n\n%s\n\n%s" % (head, body, sp)
+    html = "<b>%s</b>\n\n%s\n\n%s" % (g.esc(head), g.esc(body), sh)
     return plain, html
 
 
@@ -372,15 +374,17 @@ def send_text_all(plain, html, link, title, owner=False):
         if name == "Eitaa":
             res[name] = send_eitaa(tok, chat, None, plain, title)[0]
         else:
-            res[name] = send_bot_api(name, base, tok, chat, None, plain, html, link)[0]
+            res[name] = send_bot_api(name, base, tok, chat, None, plain, html, link, button=False)[0]
     return res
 
 
-def send_doc_bot_api(name, base, token, chat, data, filename, plain, html, link, btn="مطالعه‌ی آنلاین مقاله"):
-    markup = json.dumps({"inline_keyboard": pdf_buttons(link, btn)})
+def send_doc_bot_api(name, base, token, chat, data, filename, plain, html, link, btn="مطالعه‌ی آنلاین مقاله", buttons="default"):
+    if buttons == "default":
+        buttons = [[{"text": btn, "url": link}]]        # رفتار قبلی: یک کلید (مثلاً «مطالعه‌ی نشریه»)
+    markup = json.dumps({"inline_keyboard": buttons}) if buttons else None
     use_html = (name == "Telegram") and len(html) <= 1000
     cap = html if use_html else plain[:1000]
-    for with_markup in (True, False):
+    for with_markup in ((True, False) if markup else (False,)):
         d = {"chat_id": chat, "caption": cap}
         if use_html:
             d["parse_mode"] = "HTML"
@@ -396,7 +400,9 @@ def send_doc_bot_api(name, base, token, chat, data, filename, plain, html, link,
             return True
     # فایل آپلود نشد: پیام متنی با همان کلیدهای شیشه‌ای، تا مخاطب بی‌خبر نماند
     try:
-        d = {"chat_id": chat, "text": cap + "\n\n(فایل PDF در این پیام‌رسان آپلود نشد؛ از لینک مقاله استفاده کنید.)", "reply_markup": markup}
+        d = {"chat_id": chat, "text": cap + "\n\n(فایل PDF در این پیام‌رسان آپلود نشد.)"}
+        if markup:
+            d["reply_markup"] = markup
         if use_html:
             d["parse_mode"] = "HTML"
         r = requests.post((base % token) + "sendMessage", data=d, timeout=60)
@@ -408,7 +414,7 @@ def send_doc_bot_api(name, base, token, chat, data, filename, plain, html, link,
     return False
 
 
-def send_doc_all(data, filename, plain, html, link, title, owner=False, btn="مطالعه‌ی آنلاین مقاله", eitaa_plain=None):
+def send_doc_all(data, filename, plain, html, link, title, owner=False, btn="مطالعه‌ی آنلاین مقاله", eitaa_plain=None, buttons="default"):
     res = {}
     for name, base, tok, chat in dest(owner):
         if name == "Eitaa":
@@ -420,7 +426,7 @@ def send_doc_all(data, filename, plain, html, link, title, owner=False, btn="م�
                     break
             res[name] = ok
         else:
-            res[name] = send_doc_bot_api(name, base, tok, chat, data, filename, plain, html, link, btn)
+            res[name] = send_doc_bot_api(name, base, tok, chat, data, filename, plain, html, link, btn, buttons)
     return res
 
 
@@ -458,14 +464,12 @@ def do_stage(post_id, stage, owner=False, late=0):
         body = "برای مطالعه‌ی آفلاین، نگهداری و ارسال برای همکارانتان."
         sp = "✍️ %s\n\n🆔️ %s" % (SIG_NAME, HANDLE)
         sh = "✍️ <b>%s</b>\n\n🆔️ %s" % (g.esc(SIG_NAME), g.esc(HANDLE))
-        plain = "📄 نسخه‌ی PDF مقاله: %s\n\n%s\n\n🔗 مطالعه‌ی آنلاین:\n%s\n\n%s" % (short, body, p["link"], sp)
-        html = "<b>📄 نسخه‌ی PDF مقاله: %s</b>\n\n%s\n\n🔗 مطالعه‌ی آنلاین:\n%s\n\n%s" % (g.esc(short), g.esc(body), g.esc(p["link"]), sh)
+        # فقط یک لینک، در انتهای پیام و قبل از امضا: تست سنجش رشد
+        plain = "📄 نسخه‌ی PDF مقاله: %s\n\n%s\n\n🎯 تست رایگان سنجش رشد کسب‌وکار:\n%s\n\n%s" % (short, body, ASSESS_URL, sp)
+        html = "<b>📄 نسخه‌ی PDF مقاله: %s</b>\n\n%s\n\n🎯 تست رایگان سنجش رشد کسب‌وکار:\n%s\n\n%s" % (g.esc(short), g.esc(body), g.esc(ASSESS_URL), sh)
         fname = (re.sub(r"[^\w\-]+", "-", title).strip("-")[:50] or "article") + ".pdf"
-        # ایتا کلید شیشه‌ای ندارد؛ دو لینک داخل متن کپشن می‌آید (قبل از امضا)
-        eitaa_plain = ("📄 نسخه‌ی PDF مقاله: %s\n\n%s\n\n🔗 مطالعه‌ی آنلاین:\n%s\n\n"
-                       "📊 %s:\n%s\n\n💬 %s:\n%s\n\n%s"
-                       % (short, body, p["link"], BTN_ASSESS, ASSESS_URL, BTN_CONSULT, CONSULT_URL, sp))
-        res = send_doc_all(data, fname, plain, html, p["link"], title, owner, eitaa_plain=eitaa_plain)
+        res = send_doc_all(data, fname, plain, html, p["link"], title, owner,
+                           buttons=(pdf_buttons(p["link"], "مطالعه‌ی آنلاین مقاله") if PDF_BUTTONS else None))
     line = " | ".join("%s %s" % (k, "✅" if v else "❌") for k, v in res.items()) or "هیچ مقصدی تنظیم نیست"
     ok = any(res.values())
     if not owner:

@@ -1,6 +1,6 @@
 """
 ارسال هفتگی PDF نشریه: شنبه ساعت ۱۰ صبح (وقت تهران) به کانال‌های تلگرام، بله و ایتا، با توضیح، امضا و آیدی کانال.
-اجرا از ۹:۳۰ شروع می‌شود و دقیقاً تا ۱۰:۰۰ صبر می‌کند (چون زمان‌بندی GitHub گاهی دیر اجرا می‌شود).
+اجرا از ۹:۳۰ شروع می‌شود و دقیقاً تا ۱۰:۰۰ صبر می‌کند. فقط شنبه‌ها (وقت تهران) و فقط برای آخرین شماره‌ی ارسال‌نشده؛ اجرای زودهنگام یا تکراری چیزی نمی‌فرستد.
 TEST_OWNER=1  -> فقط به چت شخصی شما می‌فرستد (آزمایش) و علامت «ارسال‌شده» نمی‌زند.
 """
 import os, sys, re, time
@@ -17,32 +17,59 @@ FORCE = os.environ.get("FORCE", "0").strip().lower() in ("1", "true", "yes")
 
 
 def wait_until_ten():
+    """تا ساعت ۱۰ تهران صبر می‌کند. اگر بیش از ۶۵ دقیقه مانده باشد، ارسال نمی‌شود (اجرای زودهنگام اشتباه)."""
     tz = ZoneInfo("Asia/Tehran")
     now = datetime.now(tz)
     target = now.replace(hour=10, minute=0, second=0, microsecond=0)
     if now >= target:
         print("Already past 10:00 Tehran; sending now.")
-        return
+        return True
     delta = (target - now).total_seconds()
-    if delta > 55 * 60:
-        print("More than 55 minutes to 10:00 (%.0f min); sending now." % (delta / 60))
-        return
+    if delta > 65 * 60:
+        print("Too early (%.0f min to 10:00 Tehran); not sending." % (delta / 60))
+        return False
     print("Waiting %.0f seconds until 10:00 Tehran..." % delta)
     time.sleep(delta)
+    return True
+
+
+def fetch_issues():
+    # پارامتر nc جلوی کش شدن پاسخ (CDN یا افزونه‌ی کش) را می‌گیرد تا پرچم «ارسال‌شده» همیشه تازه خوانده شود
+    r = g.wp("GET", API + "/issues?nc=%d" % int(time.time()), tries=3, timeout=90)
+    if r.status_code != 200:
+        sys.exit("فهرست شماره‌ها در دسترس نیست (HTTP %s)." % r.status_code)
+    return r.json().get("issues", [])
 
 
 def pick_issue():
-    r = g.wp("GET", API + "/issues", tries=3, timeout=90)
-    if r.status_code != 200:
-        sys.exit("فهرست شماره‌ها در دسترس نیست (HTTP %s)." % r.status_code)
-    items = r.json().get("issues", [])
+    """فقط «آخرین شماره‌ی بسته‌شده‌ی دارای PDF» انتخاب می‌شود، نه شماره‌های قدیمی؛ و اگر قبلاً ارسال شده باشد، ارسال نمی‌شود."""
+    items = fetch_issues()
     if ISSUE_NO:
         sel = [i for i in items if str(i["no"]) == ISSUE_NO]
+        issue = sel[0] if sel else None
     else:
-        sel = [i for i in items if (not i["open"]) and i.get("pdf") and not i.get("sent")]
-    if not sel:
+        ready = [i for i in items if (not i["open"]) and i.get("pdf")]
+        issue = max(ready, key=lambda i: int(i["no"])) if ready else None
+    if issue and issue.get("sent") and not (FORCE or TEST_OWNER):
+        print("شماره‌ی %s قبلاً ارسال شده است؛ چیزی ارسال نمی‌شود." % issue["no"])
         return None
-    return max(sel, key=lambda i: i["no"])
+    return issue
+
+
+def mark_sent(no):
+    """ثبت «ارسال‌شده» با تأیید؛ اگر ثبت نشود، اجرای بعدی دوباره همان شماره را می‌فرستد."""
+    for k in range(3):
+        try:
+            mr = g.wp("POST", API + "/asset", tries=3, auth=g.AUTH, timeout=90, json={"no": no, "sent": 1})
+            print("Mark sent: HTTP", mr.status_code)
+            if mr.status_code == 200:
+                chk = [i for i in fetch_issues() if str(i["no"]) == str(no)]
+                if chk and chk[0].get("sent"):
+                    return True
+        except Exception as e:
+            print("Mark sent error:", type(e).__name__)
+        time.sleep(5)
+    return False
 
 
 def titles_of(ids):
@@ -80,11 +107,15 @@ def build_caption(issue, titles):
 
 
 def main():
+    manual = bool(ISSUE_NO or FORCE or TEST_OWNER)
+    if not manual:
+        now = datetime.now(ZoneInfo("Asia/Tehran"))
+        if now.weekday() != 5:          # شنبه
+            print("امروز شنبه نیست (وقت تهران)؛ ارسال هفتگی انجام نمی‌شود.")
+            return
     issue = pick_issue()
     if not issue:
-        print("شماره‌ی بسته‌شده‌ی دارای PDF که هنوز ارسال نشده باشد وجود ندارد.")
-        if not TEST_OWNER:
-            g.notify("ℹ️ ارسال هفتگی نشریه: شماره‌ی آماده‌ی ارسال پیدا نشد (PDF ساخته نشده یا قبلاً ارسال شده).")
+        print("شماره‌ی آماده‌ی ارسال وجود ندارد (PDF ساخته نشده یا قبلاً ارسال شده).")
         return
     no = issue["no"]
     print("Issue to send:", no, issue["range"])
@@ -98,8 +129,13 @@ def main():
     plain, html, link = build_caption(issue, titles)
     print("Caption length:", len(plain), len(html))
 
-    if not TEST_OWNER:
-        wait_until_ten()
+    if not manual:
+        if not wait_until_ten():
+            return
+        issue = pick_issue()            # بعد از انتظار دوباره بررسی می‌شود؛ شاید اجرای دیگری فرستاده باشد
+        if not issue or str(issue["no"]) != str(no):
+            print("در فاصله‌ی انتظار وضعیت عوض شد؛ ارسال لغو شد.")
+            return
     fname = "نشریه-رشد-کسب-وکار-شماره-%02d.pdf" % int(no)
     res = a.send_doc_all(data, fname, plain, html, link, "نشریه‌ی هفتگی رشد کسب‌وکار — شماره‌ی %s" % g.fa(no),
                          owner=TEST_OWNER, btn="مطالعه‌ی نشریه")
@@ -108,10 +144,12 @@ def main():
     if TEST_OWNER:
         g.notify("🧪 آزمایش ارسال هفتگی شماره‌ی %s (فقط به شما):\n%s" % (g.fa(no), line))
         return
+    note = ""
     if any(res.values()):
-        mr = g.wp("POST", API + "/asset", tries=3, auth=g.AUTH, timeout=90, json={"no": no, "sent": 1})
-        print("Mark sent: HTTP", mr.status_code)
-    g.notify("📘 PDF شماره‌ی %s نشریه در کانال‌ها ارسال شد:\n%s\n\n(ایمیل اعضا: هنوز به سامانه‌ی ایمیل وصل نشده است)" % (g.fa(no), line))
+        if not mark_sent(no):
+            note = "\n\n⚠️ ثبت «ارسال‌شده» در وردپرس انجام نشد؛ ممکن است اجرای بعدی دوباره بفرستد. افزونه و پاسخ /issues را بررسی کنید."
+    g.notify("📘 PDF شماره‌ی %s نشریه در کانال‌ها ارسال شد:\n%s\n\n(ایمیل اعضا: هنوز به سامانه‌ی ایمیل وصل نشده است)%s" % (g.fa(no), line, note))
 
 
-main()
+if __name__ == "__main__":
+    main()
