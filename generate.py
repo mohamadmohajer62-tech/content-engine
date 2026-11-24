@@ -14,7 +14,8 @@ MODEL = os.environ.get("LLM_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
 IMG_MODEL = os.environ.get("IMAGE_MODEL", "").strip()
 IMG_SIZE = os.environ.get("IMAGE_SIZE", "1536x1024").strip() or "1536x1024"
 IMG_QUALITY = os.environ.get("IMAGE_QUALITY", "low").strip()
-GAP_BASE = "https://api.gapgpt.app/v1"
+# آدرس پایه‌ی GapGPT (از نوامبر ۲۰۲۶: api.gapgpt.ir). با متغیر GAPGPT_BASE_URL هم قابل تغییر است.
+GAP_BASE = (os.environ.get("GAPGPT_BASE_URL", "").strip() or "https://api.gapgpt.ir/v1").rstrip("/")
 MAKE_PDF = os.environ.get("MAKE_PDF", "1").strip() != "0"
 MAGAZINE_NAME = "مجله رشد کسب‌وکار"
 MAGAZINE_URL = os.environ.get("MAGAZINE_URL", "").strip() or "https://mohammadmohajer.ir/"
